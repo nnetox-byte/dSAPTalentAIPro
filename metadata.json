@@ -1,0 +1,8 @@
+{
+  "name": "SAP Talent Assessment Pro",
+  "description": "A comprehensive system for evaluating SAP consultants and project managers across multiple modules and industries, featuring AI-generated questions and robust reporting.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

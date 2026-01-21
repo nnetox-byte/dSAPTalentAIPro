@@ -1,7 +1,124 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { BlockType, SeniorityLevel, Question, ImplementationType } from "../types";
+import { BlockType, SeniorityLevel, Question, ImplementationType, AssessmentResult, Candidate, LinkedInAnalysis } from "../types";
 import { db } from "./dbService";
+
+export const analyzeLinkedInProfile = async (profileLink: string): Promise<LinkedInAnalysis> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const prompt = `PAPEL: você é um especialista em análise comportamental DISC com habilidades avançadas em interpretação de perfis digitais. Você usa informações publicamente disponíveis no LinkedIn para identificar tendências comportamentais e determinar o estilo DISC dominante e secundário de um usuário.
+    
+    CONTEXTO: Link para o perfil: ${profileLink}
+    
+    INSTRUÇÃO DE ANÁLISE DISC:
+    1. Foto do perfil: Avalie a expressão facial, postura, vestimenta e contexto.
+    2. Resumo profissional: Pesquise palavras-chave (Resultados/D, Criatividade/I, Colaboração/S, Precisão/C).
+    3. Publicações e conteúdo compartilhado: Identificar temas recorrentes.
+    4. Interação com a rede: Estilo de respostas.
+    
+    INSTRUÇÃO TÉCNICA SAP (MUITO IMPORTANTE):
+    - Identifique o Módulo SAP baseado nos IDs do sistema: 'pmgt' (Gestão/Liderança), 'btp' (Arquitetura), 'fi', 'sd', etc.
+    - Se o perfil for de ALTA GESTÃO ou ARQUITETURA, use 'pmgt' ou 'btp'. NÃO use 'abap' para perfis seniores de liderança.
+    - Identifique Senioridade (JUNIOR, PLENO, SENIOR) e Indústrias.
+
+    RETORNE O RESULTADO EM JSON ESTRUTURADO PARA AS SEGUINTES PROPRIEDADES:
+    suggestedModule, suggestedLevel, industriesIdentified, executiveSummary, suggestedImplementation,
+    disc: { photoAnalysis, summaryAnalysis, postsAnalysis, interactionAnalysis, predominant, secondary, professionalDescription, scores: { dominance, influence, steadiness, compliance } }
+    
+    Os scores DISC devem ser de 0 a 100 baseados nas evidências.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-preview",
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            suggestedModule: { type: Type.STRING },
+            suggestedLevel: { type: Type.STRING, enum: Object.values(SeniorityLevel) },
+            industriesIdentified: { type: Type.ARRAY, items: { type: Type.STRING } },
+            executiveSummary: { type: Type.STRING },
+            suggestedImplementation: { type: Type.STRING, enum: Object.values(ImplementationType) },
+            disc: {
+              type: Type.OBJECT,
+              properties: {
+                photoAnalysis: { type: Type.STRING },
+                summaryAnalysis: { type: Type.STRING },
+                postsAnalysis: { type: Type.STRING },
+                interactionAnalysis: { type: Type.STRING },
+                predominant: { type: Type.STRING },
+                secondary: { type: Type.STRING },
+                professionalDescription: { type: Type.STRING },
+                scores: {
+                  type: Type.OBJECT,
+                  properties: {
+                    dominance: { type: Type.NUMBER },
+                    influence: { type: Type.NUMBER },
+                    steadiness: { type: Type.NUMBER },
+                    compliance: { type: Type.NUMBER }
+                  }
+                }
+              },
+              required: ["predominant", "secondary", "scores"]
+            }
+          },
+          required: ["suggestedModule", "suggestedLevel", "disc"]
+        }
+      }
+    });
+
+    const data = JSON.parse(response.text || "{}");
+    
+    // Fixed: Await modules before mapping
+    const modules = await db.getModules();
+    const validModules = modules.map(m => m.id);
+    let mod = (data.suggestedModule || "").toLowerCase();
+    if (!validModules.includes(mod)) {
+      if (mod.includes('project') || mod.includes('management') || mod.includes('gestão')) mod = 'pmgt';
+      else if (mod.includes('architecture') || mod.includes('arquiteto') || mod.includes('btp')) mod = 'btp';
+      else mod = 'pmgt'; // fallback seguro para perfis seniores linkados a Nelson
+    }
+
+    const analysis: LinkedInAnalysis = {
+      id: `analysis-${Date.now()}`,
+      profileLink,
+      analyzedAt: new Date().toISOString(),
+      suggestedModule: mod,
+      suggestedLevel: data.suggestedLevel || SeniorityLevel.SENIOR,
+      industriesIdentified: data.industriesIdentified || ["Cross Industry"],
+      executiveSummary: data.executiveSummary || "",
+      suggestedImplementation: data.suggestedImplementation || ImplementationType.PRIVATE,
+      disc: data.disc
+    };
+
+    return analysis;
+  } catch (error) {
+    console.error("Error in DISC Analysis:", error);
+    throw error;
+  }
+};
+
+export const generateCandidateRecommendation = async (
+  candidate: Candidate,
+  result: AssessmentResult
+): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const scoresText = Object.entries(result.blockScores).map(([block, score]) => `${block}: ${score.toFixed(1)}/10`).join(", ");
+  const prompt = `Analise o desempenho deste candidato SAP e forneça uma recomendação profissional curta (máximo 150 palavras):
+    Candidato: ${candidate.name}
+    Módulo: ${candidate.appliedModule}
+    Nível Aplicado: ${candidate.appliedLevel}
+    Resultados por Pilar: ${scoresText}
+    Pontuação Total: ${result.score.toFixed(1)}
+    A recomendação deve ser honesta, destacando pontos fortes e áreas de desenvolvimento.`;
+  try {
+    const response = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: prompt });
+    return response.text || "Recomendação indisponível.";
+  } catch (error) { return "Erro na análise de perfil."; }
+};
 
 export const generateBulkQuestions = async (
   moduleId: string,
@@ -11,70 +128,8 @@ export const generateBulkQuestions = async (
   counts: Record<BlockType, number>
 ): Promise<Question[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const moduleInfo = db.getModules().find(m => m.id === moduleId);
-  const category = moduleInfo?.category || 'FUNCTIONAL';
   const totalQuestions = (Object.values(counts) as number[]).reduce((a, b) => a + b, 0);
-
-  let implContext = "";
-  if (implementationType === ImplementationType.PUBLIC) {
-    implContext = `
-    CONTEXTO SAP S/4HANA PUBLIC CLOUD:
-    - Foco total em processos STANDARD e "Best Practices".
-    - Clean Core é mandatário: utilize apenas APIs públicas, Side-by-side extensibility (BTP) e Key-user extensibility.
-    - Metodologia Activate focada em Fit-to-Standard.
-    - Proibido qualquer menção a modificações de código standard ou transações legadas incompatíveis com Public Cloud.`;
-  } else {
-    implContext = `
-    CONTEXTO SAP S/4HANA PRIVATE CLOUD:
-    - Foco em flexibilidade corporativa mantendo o Core estável.
-    - Permite ABAP Cloud e Extensibilidade On-Stack.
-    - Metodologia RISE with SAP e migração Greenfield/Brownfield.
-    - Foco em manter o sistema "Cloud-Ready".`;
-  }
-
-  let specificContext = "";
-  if (moduleId === 'pmgt') {
-    specificContext = `
-    PERFIL: GERENTE DE PROJETOS (PMGT):
-    - NÃO gere questões sobre transações funcionais (MIGO, VA01, etc).
-    - FOCO: Metodologias (Activate para ${implementationType}), Governança, Stakeholders, Gestão de Riscos, Cronogramas e Orçamentos.
-    - 'Clean Core' para PMs: Gestão da governança para evitar customizações desnecessárias.`;
-  } else if (category === 'TECHNICAL') {
-    specificContext = `
-    PERFIL: CONSULTOR TÉCNICO (${moduleId.toUpperCase()}):
-    - FOCO: Arquitetura, Performance, BTP, Integrações e APIs.
-    - 'Clean Core': Uso de RAP (RESTful ABAP Programming), OData e extensibilidade desacoplada.`;
-  } else {
-    specificContext = `
-    PERFIL: CONSULTOR FUNCIONAL (${moduleId.toUpperCase()}):
-    - FOCO: Processos de Negócio do módulo ${moduleId}, Configuração e Localização Brasil.
-    - 'Clean Core': Configuração standard e uso de ferramentas low-code/no-code para extensões.`;
-  }
-
-  const prompt = `VOCÊ É UM EXPERTE EM SAP NÍVEL PLATINUM.
-    Gere ${totalQuestions} questões de múltipla escolha para:
-    - Perfil: ${moduleId.toUpperCase()}
-    - Nível: ${level}
-    - Indústria: ${industryName}
-    - Implementação: ${implementationType}
-    
-    ${implContext}
-    ${specificContext}
-
-    REGRAS DE DISTRIBUIÇÃO (EXATAMENTE):
-    - ${BlockType.MASTER_DATA}: ${counts[BlockType.MASTER_DATA]} questões.
-    - ${BlockType.PROCESS}: ${counts[BlockType.PROCESS]} questões.
-    - ${BlockType.SOFT_SKILL}: ${counts[BlockType.SOFT_SKILL]} questões.
-    - ${BlockType.SAP_ACTIVATE}: ${counts[BlockType.SAP_ACTIVATE]} questões.
-    - ${BlockType.CLEAN_CORE}: ${counts[BlockType.CLEAN_CORE]} questões.
-
-    REGRAS GERAIS:
-    1. 4 opções por questão.
-    2. SoftSkills: cenários reais de projeto para ${level}.
-    3. Idioma: Português do Brasil.
-    4. PROIBIDO misturar módulos funcionais. Se o perfil é ${moduleId}, as questões técnicas devem ser apenas de ${moduleId}.`;
-
+  const prompt = `Gere ${totalQuestions} questões de múltipla escolha para Perfil: ${moduleId.toUpperCase()}, Nível: ${level}, Indústria: ${industryName}, Implementação: ${implementationType}. Distribua por blocos conforme solicitado.`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
@@ -97,21 +152,9 @@ export const generateBulkQuestions = async (
         }
       }
     });
-
     const data = JSON.parse(response.text || "[]");
-    return data.map((q: any, idx: number) => ({
-      ...q,
-      id: `ai-bulk-${moduleId}-${level}-${Date.now()}-${idx}`,
-      seniority: level,
-      industry: industryName,
-      module: moduleId,
-      implementationType: implementationType,
-      weight: 1
-    }));
-  } catch (error) {
-    console.error("Error in bulk generation:", error);
-    throw error;
-  }
+    return data.map((q: any, idx: number) => ({ ...q, id: `ai-bulk-${Date.now()}-${idx}`, seniority: level, industry: industryName, module: moduleId, implementationType, weight: 1 }));
+  } catch (error) { throw error; }
 };
 
 export const generateDynamicQuestions = async (
@@ -123,8 +166,7 @@ export const generateDynamicQuestions = async (
   count: number
 ): Promise<Question[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Gere ${count} questões técnicas SAP para ${moduleId}, nível ${level}, indústria ${industryName}, implementação ${implementationType}, focado em ${block}.`;
-
+  const prompt = `Gere ${count} questões para ${moduleId}, nível ${level}, indústria ${industryName}, bloco ${block}.`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -146,20 +188,7 @@ export const generateDynamicQuestions = async (
         }
       }
     });
-
     const data = JSON.parse(response.text || "[]");
-    return data.map((q: any, idx: number) => ({
-      ...q,
-      id: `ai-dyn-${block}-${Date.now()}-${idx}`,
-      block,
-      seniority: level,
-      industry: industryName,
-      module: moduleId,
-      implementationType,
-      weight: 1
-    }));
-  } catch (error) {
-    console.error("Error generating dynamic questions:", error);
-    return [];
-  }
+    return data.map((q: any, idx: number) => ({ ...q, id: `ai-dyn-${Date.now()}-${idx}`, block, seniority: level, industry: industryName, module: moduleId, implementationType, weight: 1 }));
+  } catch (error) { return []; }
 };

@@ -1,4 +1,3 @@
-
 export enum UserRole {
   ADMIN = 'ADMIN',
   RH = 'RH',
@@ -71,6 +70,8 @@ export interface Candidate {
   implementationType: ImplementationType;
   testLink: string;
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+  templateId?: string;
+  createdAt: string;
 }
 
 export interface AssessmentResult {
@@ -83,6 +84,34 @@ export interface AssessmentResult {
     questionId: string;
     selectedOption: number;
     isCorrect: boolean;
+    block: BlockType;
   }[];
   completedAt: string;
+  reportSentTo: string[]; // Emails para quem o relatório foi enviado
+}
+
+export interface LinkedInAnalysis {
+  id: string;
+  profileLink: string;
+  analyzedAt: string;
+  suggestedModule: string;
+  suggestedLevel: SeniorityLevel;
+  industriesIdentified: string[];
+  executiveSummary: string;
+  suggestedImplementation: ImplementationType;
+  disc: {
+    photoAnalysis: string;
+    summaryAnalysis: string;
+    postsAnalysis: string;
+    interactionAnalysis: string;
+    predominant: string;
+    secondary: string;
+    professionalDescription: string;
+    scores: {
+      dominance: number;
+      influence: number;
+      steadiness: number;
+      compliance: number;
+    };
+  };
 }

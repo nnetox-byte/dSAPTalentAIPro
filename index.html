@@ -1,6 +1,5 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,22 +7,77 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; }
+    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; margin: 0; }
+    #root { min-height: 100vh; }
+    #error-display {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #f8fafc;
+      z-index: 9999;
+      padding: 20px;
+      overflow: auto;
+      font-family: sans-serif;
+    }
+    .error-box {
+      max-width: 600px;
+      margin: 100px auto;
+      background: white;
+      padding: 32px;
+      border-radius: 24px;
+      border: 1px solid #fee2e2;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+      text-align: center;
+    }
+    pre {
+      text-align: left;
+      background: #f1f5f9;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: #be123c;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-top: 20px;
+      border: 1px solid #e2e8f0;
+    }
   </style>
-<script type="importmap">
+  <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+    "recharts": "https://esm.sh/recharts@2.12.7?external=react,react-dom",
+    "@google/genai": "https://esm.sh/@google/genai@0.3.1",
+    "lucide-react": "https://esm.sh/lucide-react@0.378.0?external=react",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.42.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "recharts": "https://esm.sh/recharts@^3.6.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.37.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+    "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
 </script>
 </head>
-<body class="bg-slate-50 text-slate-900">
+<body>
   <div id="root"></div>
+  <div id="error-display">
+    <div class="error-box">
+      <div style="font-size: 40px; margin-bottom: 16px;">🔍</div>
+      <h2 style="color: #ef4444; margin-top: 0;">Falha no Carregamento</h2>
+      <p style="color: #64748b; font-size: 14px;">Erro ao carregar os módulos da aplicação. Verifique se o Supabase está configurado corretamente.</p>
+      <pre id="error-content"></pre>
+      <button onclick="location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #2563eb; color: white; border: none; border-radius: 12px; font-weight: bold; cursor: pointer;">Recarregar</button>
+    </div>
+  </div>
+  <script>
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+      const display = document.getElementById('error-display');
+      if (display) display.style.display = 'block';
+      const content = document.getElementById('error-content');
+      if (content) content.textContent += `\n[Erro] ${msg}`;
+      return false;
+    };
+  </script>
 </body>
 </html>

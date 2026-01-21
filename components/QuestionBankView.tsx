@@ -1,12 +1,14 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Search, Filter, Trash2, Edit, Sparkles, RefreshCw, Layers, HardHat, Factory, X, Calculator, Cloud } from 'lucide-react';
 import { db } from '../services/dbService';
 import { Question, BlockType, SeniorityLevel, AssessmentTemplate, SAPModule, Industry, ImplementationType } from '../types';
 import { generateBulkQuestions } from '../services/geminiService';
 
 const QuestionBankView: React.FC = () => {
-  const [questions, setQuestions] = useState<Question[]>(() => db.getBankQuestions());
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [modules, setModules] = useState<SAPModule[]>([]);
+  const [industries, setIndustries] = useState<Industry[]>([]);
   
   // Filters
   const [filterBlock, setFilterBlock] = useState<string>('ALL');
@@ -27,8 +29,20 @@ const QuestionBankView: React.FC = () => {
     [BlockType.CLEAN_CORE]: 5
   });
 
-  const modules = db.getModules();
-  const industries = db.getIndustries();
+  // Fixed: Load data asynchronously in useEffect
+  useEffect(() => {
+    const loadData = async () => {
+      const [qs, ms, inds] = await Promise.all([
+        db.getBankQuestions(),
+        db.getModules(),
+        db.getIndustries()
+      ]);
+      setQuestions(qs);
+      setModules(ms);
+      setIndustries(inds);
+    };
+    loadData();
+  }, []);
 
   const filteredQuestions = useMemo(() => {
     return questions.filter(q => {
@@ -59,9 +73,9 @@ const QuestionBankView: React.FC = () => {
     try {
       const newQuestions = await generateBulkQuestions(moduleId, industryName, level, implType, blockCounts);
       
-      const currentBank = db.getBankQuestions();
+      const currentBank = await db.getBankQuestions();
       const updatedBank = [...currentBank, ...newQuestions];
-      db.saveBankQuestions(updatedBank);
+      await db.saveBankQuestions(updatedBank);
       setQuestions(updatedBank);
 
       const template: AssessmentTemplate = {
@@ -74,7 +88,7 @@ const QuestionBankView: React.FC = () => {
         questions: newQuestions,
         createdAt: new Date().toISOString()
       };
-      db.saveTemplate(template);
+      await db.saveTemplate(template);
 
       alert(`Sucesso! ${newQuestions.length} questões geradas e modelo criado.`);
       setShowGenModal(false);
@@ -86,12 +100,13 @@ const QuestionBankView: React.FC = () => {
     }
   };
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (confirm('Deseja excluir esta questão permanentemente?')) {
-      db.deleteBankQuestion(id);
-      setQuestions(db.getBankQuestions());
+      await db.deleteBankQuestion(id);
+      const updatedQs = await db.getBankQuestions();
+      setQuestions(updatedQs);
     }
   };
 
@@ -109,9 +124,9 @@ const QuestionBankView: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button 
-            onClick={() => {
+            onClick={async () => {
               if (confirm('Deseja limpar TODO o banco de questões?')) {
-                db.saveBankQuestions([]);
+                await db.saveBankQuestions([]);
                 setQuestions([]);
               }
             }}

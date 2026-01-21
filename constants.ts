@@ -27,19 +27,34 @@ export const INDUSTRIES: Industry[] = [
   { id: 'food', name: 'Indústria Alimentícia' },
 ];
 
-export const BLOCK_WEIGHTS: Record<string, Record<BlockType, number>> = {
+// Regras de Pontuação Automática por Módulo (Pesos Dinâmicos)
+export const BLOCK_WEIGHTS: Record<string, Record<string, number>> = {
   'abap': {
-    [BlockType.MASTER_DATA]: 1,
-    [BlockType.PROCESS]: 1,
-    [BlockType.SOFT_SKILL]: 1,
-    [BlockType.SAP_ACTIVATE]: 1.2,
-    [BlockType.CLEAN_CORE]: 2.0, // High weight on Clean Core for ABAP
+    'Clean Core': 2.5,
+    'SAP Activate': 1.5,
+    'Processo': 1.0,
+    'Dados Mestres': 1.0,
+    'SoftSkill': 1.0
+  },
+  'btp': {
+    'Clean Core': 2.0,
+    'SAP Activate': 1.5,
+    'Processo': 1.0,
+    'Dados Mestres': 1.2,
+    'SoftSkill': 1.0
+  },
+  'pmgt': {
+    'SAP Activate': 2.5,
+    'SoftSkill': 2.0,
+    'Processo': 1.5,
+    'Clean Core': 1.0,
+    'Dados Mestres': 1.0
   },
   'default': {
-    [BlockType.MASTER_DATA]: 1,
-    [BlockType.PROCESS]: 1.5,
-    [BlockType.SOFT_SKILL]: 1,
-    [BlockType.SAP_ACTIVATE]: 1,
-    [BlockType.CLEAN_CORE]: 1,
+    'Processo': 2.0,
+    'Dados Mestres': 1.5,
+    'SoftSkill': 1.0,
+    'SAP Activate': 1.0,
+    'Clean Core': 1.0
   }
 };

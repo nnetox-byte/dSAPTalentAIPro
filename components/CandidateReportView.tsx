@@ -1,3 +1,4 @@
+
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, 
   ResponsiveContainer, Tooltip 
@@ -61,108 +62,88 @@ const CandidateReportView: React.FC<CandidateReportViewProps> = ({ candidateId, 
     }));
   }, [result]);
 
-  if (!candidate || !result) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-        <p>Dados não encontrados.</p>
-        <button onClick={onBack} className="mt-4 text-blue-600 hover:underline">Voltar</button>
-      </div>
-    );
-  }
+  if (!candidate || !result) return null;
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500 pb-20">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <button 
           onClick={onBack}
-          className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors font-bold uppercase text-[10px] tracking-widest bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-100"
+          className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors font-bold uppercase text-[9px] md:text-[10px] tracking-widest bg-white px-3 py-2 md:px-4 md:py-2 rounded-xl shadow-sm border border-slate-100"
         >
-          <ArrowLeft size={16} /> Voltar para Lista
+          <ArrowLeft size={16} /> Voltar
         </button>
 
-        <div className={`flex items-center gap-2 px-6 py-2 rounded-2xl border-2 font-black text-xs uppercase tracking-widest shadow-lg ${
+        <div className={`flex items-center gap-2 px-5 py-2 rounded-2xl border-2 font-black text-[10px] md:text-xs uppercase tracking-widest shadow-md ${
           approvalData.approved ? 'bg-green-50 border-green-200 text-green-600' : 'bg-red-50 border-red-200 text-red-600'
         }`}>
-          {approvalData.approved ? <CheckCircle size={18} /> : <XCircle size={18} />}
+          {approvalData.approved ? <CheckCircle size={16} /> : <XCircle size={16} />}
           {approvalData.approved ? 'Aprovado' : 'Não Recomendado'}
         </div>
       </div>
 
-      <div className="bg-white rounded-[40px] p-8 md:p-12 border border-slate-100 shadow-xl flex flex-col md:flex-row gap-10 items-start md:items-center relative overflow-hidden">
-        <div className="w-32 h-32 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-[32px] flex items-center justify-center text-5xl font-black shadow-2xl z-10 shrink-0">
+      <div className="bg-white rounded-[32px] md:rounded-[40px] p-6 md:p-10 border border-slate-100 shadow-xl flex flex-col md:flex-row gap-6 md:gap-10 items-center text-center md:text-left">
+        <div className="w-24 h-24 md:w-32 md:h-32 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-[24px] md:rounded-[32px] flex items-center justify-center text-4xl md:text-5xl font-black shadow-lg shrink-0">
           {candidate.name.charAt(0)}
         </div>
-        <div className="flex-1 space-y-4 z-10">
-          <h2 className="text-4xl font-black text-slate-900 tracking-tight">{candidate.name}</h2>
-          <div className="flex flex-wrap gap-4 text-slate-500 font-bold text-sm">
-            <span className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100"><Mail size={16} className="text-blue-500" /> {candidate.email}</span>
-            <span className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100"><Briefcase size={16} className="text-blue-500" /> {candidate.appliedModule}</span>
-            <span className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100"><Award size={16} className="text-amber-500" /> {candidate.appliedLevel}</span>
+        <div className="flex-1 space-y-3 md:space-y-4">
+          <h2 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tight">{candidate.name}</h2>
+          <div className="flex flex-wrap justify-center md:justify-start gap-3 md:gap-4 text-slate-500 font-bold text-[11px] md:text-sm">
+            <span className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 whitespace-nowrap"><Mail size={14} className="text-blue-500" /> {candidate.email}</span>
+            <span className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100"><Briefcase size={14} className="text-blue-500" /> {candidate.appliedModule}</span>
           </div>
         </div>
-        <div className="bg-slate-900 p-8 rounded-[32px] text-center min-w-[200px] shadow-2xl z-10">
-          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Pontuação Final</div>
-          <div className={`text-6xl font-black tracking-tighter ${approvalData.approved ? 'text-blue-400' : 'text-red-400'}`}>
+        <div className="bg-slate-900 p-6 md:p-8 rounded-[24px] md:rounded-[32px] text-center min-w-[160px] md:min-w-[200px] shadow-xl">
+          <div className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pontuação Final</div>
+          <div className={`text-4xl md:text-6xl font-black tracking-tighter ${approvalData.approved ? 'text-blue-400' : 'text-red-400'}`}>
             {result.score.toFixed(1)}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm flex flex-col min-h-[600px]">
-          <h3 className="text-xl font-bold text-slate-800 flex items-center gap-3 mb-6">
-            <Cpu size={24} className="text-blue-500" /> Equilíbrio de Competências
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+        <div className="bg-white p-6 md:p-10 rounded-[32px] md:rounded-[40px] border border-slate-100 shadow-sm flex flex-col">
+          <h3 className="text-lg md:text-xl font-bold text-slate-800 flex items-center gap-3 mb-6">
+            <Cpu size={24} className="text-blue-500" /> Competências
           </h3>
-          <div className="flex-1 min-h-[300px]">
+          <div className="h-[250px] md:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={chartData}>
                 <PolarGrid stroke="#f1f5f9" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 800 }} />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 9, fontWeight: 800 }} />
                 <PolarRadiusAxis angle={30} domain={[0, 10]} stroke="#e2e8f0" />
-                <Radar name="Performance" dataKey="score" stroke={approvalData.approved ? "#3b82f6" : "#ef4444"} strokeWidth={3} fill={approvalData.approved ? "#3b82f6" : "#ef4444"} fillOpacity={0.5} />
-                <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontWeight: 'bold' }} />
+                <Radar name="Performance" dataKey="score" stroke={approvalData.approved ? "#3b82f6" : "#ef4444"} fill={approvalData.approved ? "#3b82f6" : "#ef4444"} fillOpacity={0.5} />
+                <Tooltip />
               </RadarChart>
             </ResponsiveContainer>
           </div>
           
-          <div className="mt-8 grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="mt-6 grid grid-cols-2 gap-3">
             {chartData.map(item => (
-              <div key={item.subject} className="p-4 bg-slate-50 rounded-[24px] border border-slate-100 flex flex-col items-center group hover:bg-white hover:shadow-md transition-all">
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-center mb-1">{item.subject}</span>
-                <span className={`text-xl font-black ${item.score >= 7 ? 'text-green-600' : item.score >= 4 ? 'text-amber-600' : 'text-red-600'}`}>
+              <div key={item.subject} className="p-3 md:p-4 bg-slate-50 rounded-[20px] md:rounded-[24px] border border-slate-100 flex flex-col items-center">
+                <span className="text-[8px] md:text-[9px] font-black text-slate-400 uppercase tracking-widest text-center mb-1">{item.subject}</span>
+                <span className={`text-lg md:text-xl font-black ${item.score >= 7 ? 'text-green-600' : item.score >= 4 ? 'text-amber-600' : 'text-red-600'}`}>
                   {item.score.toFixed(1)}
-                  <span className="text-slate-300 text-xs ml-1 font-bold">/10</span>
+                  <span className="text-slate-300 text-[10px] ml-1 font-bold">/10</span>
                 </span>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="bg-slate-900 p-10 rounded-[40px] shadow-2xl text-white flex flex-col min-h-[600px]">
-          <h3 className="text-xl font-bold flex items-center gap-3 mb-8">
-            <Sparkles size={24} className="text-blue-400" /> Análise Preditiva IA
+        <div className="bg-slate-900 p-6 md:p-10 rounded-[32px] md:rounded-[40px] shadow-2xl text-white flex flex-col">
+          <h3 className="text-lg md:text-xl font-bold flex items-center gap-3 mb-6 md:mb-8">
+            <Sparkles size={24} className="text-blue-400" /> Análise IA
           </h3>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1">
             {loadingAI ? (
-              <div className="flex flex-col items-center justify-center h-full gap-4">
-                <RefreshCw size={48} className="animate-spin text-blue-400" />
-                <p className="font-black text-xs uppercase tracking-widest animate-pulse">Processando Insight...</p>
+              <div className="flex flex-col items-center justify-center py-12 gap-4">
+                <RefreshCw size={40} className="animate-spin text-blue-400" />
+                <p className="font-black text-[10px] uppercase tracking-widest animate-pulse">Analisando...</p>
               </div>
             ) : (
-              <p className="text-slate-300 text-lg leading-relaxed font-medium italic">"{recommendation}"</p>
+              <p className="text-slate-300 text-base md:text-lg leading-relaxed font-medium italic">"{recommendation}"</p>
             )}
-          </div>
-          
-          <div className="mt-8 pt-8 border-t border-slate-800 space-y-4">
-             <div className="flex items-center gap-3">
-               <div className="p-2 bg-blue-500/20 text-blue-400 rounded-xl">
-                 <ShieldCheck size={18} />
-               </div>
-               <div>
-                 <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Score de Confiança</div>
-                 <div className="text-sm font-bold">Validação via Gemini 1.5 Flash</div>
-               </div>
-             </div>
           </div>
         </div>
       </div>

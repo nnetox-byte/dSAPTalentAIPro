@@ -1,3 +1,4 @@
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   RH = 'RH',
@@ -49,6 +50,27 @@ export interface Question {
   weight?: number;
 }
 
+export interface Scenario {
+  id: string;
+  moduleId: string;
+  level: SeniorityLevel;
+  industry: string;
+  title: string;
+  description: string;
+  guidelines: string;
+  rubric: { criterion: string; points: string }[]; // Alterado de Record para Array
+}
+
+export interface ScenarioResult {
+  id: string;
+  candidateId: string;
+  scenarioId: string;
+  answer: string;
+  score: number;
+  feedback: string;
+  evaluatedAt: string;
+}
+
 export interface AssessmentTemplate {
   id: string;
   name: string;
@@ -57,6 +79,7 @@ export interface AssessmentTemplate {
   level: SeniorityLevel;
   implementationType: ImplementationType;
   questions: Question[];
+  scenarios?: Scenario[]; 
   createdAt: string;
 }
 
@@ -80,6 +103,7 @@ export interface AssessmentResult {
   templateId: string;
   score: number;
   blockScores: Record<BlockType, number>;
+  scenarioResults?: ScenarioResult[]; 
   answers: {
     questionId: string;
     selectedOption: number;
@@ -87,11 +111,12 @@ export interface AssessmentResult {
     block: BlockType;
   }[];
   completedAt: string;
-  reportSentTo: string[]; // Emails para quem o relatório foi enviado
+  reportSentTo: string[];
 }
 
 export interface LinkedInAnalysis {
   id: string;
+  candidateId?: string; 
   profileLink: string;
   analyzedAt: string;
   suggestedModule: string;

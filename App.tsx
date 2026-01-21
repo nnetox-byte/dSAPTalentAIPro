@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { UserRole, Candidate, AssessmentTemplate, AssessmentResult, SeniorityLevel, BlockType, Question, ImplementationType, LinkedInAnalysis, SAPModule, Industry } from './types';
 import Layout from './components/Layout';
 import TestRunner from './components/TestRunner';
@@ -10,31 +10,28 @@ import QuestionBankView from './components/QuestionBankView';
 import TemplatesView from './components/TemplatesView';
 import CandidateReportView from './components/CandidateReportView';
 import LinkedInAnalysisDetail from './components/LinkedInAnalysisDetail';
+import ComparisonView from './components/ComparisonView';
 import { db } from './services/dbService';
-import { generateDynamicQuestions, analyzeLinkedInProfile } from './services/geminiService';
+import { analyzeLinkedInProfile, generateBulkQuestions, generateSAPScenario } from './services/geminiService';
 import { 
   Plus, 
   Copy, 
-  RefreshCw,
   Sparkles,
-  FileText,
   Linkedin,
-  Zap,
   Loader2,
-  AlertTriangle,
   ExternalLink,
-  BrainCircuit,
-  Search,
-  X,
-  History,
-  CheckCircle2,
   Trash2,
-  CloudOff,
-  Cloud,
-  Wifi,
-  WifiOff
+  FileText,
+  BrainCircuit,
+  X,
+  Lock,
+  Check,
+  Info,
+  Layers,
+  Wand2,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
-import { BLOCK_WEIGHTS } from './constants';
 
 const App: React.FC = () => {
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -44,255 +41,171 @@ const App: React.FC = () => {
   const [modules, setModules] = useState<SAPModule[]>([]);
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [templates, setTemplates] = useState<AssessmentTemplate[]>([]);
+  const [results, setResults] = useState<AssessmentResult[]>([]);
   const [isLoadingApp, setIsLoadingApp] = useState(true);
-  const [dbError, setDbError] = useState<string | null>(null);
-  
-  const [showWelcomeScreen, setShowWelcomeScreen] = useState(false);
-  const [isTakingTest, setIsTakingTest] = useState(false);
-  const [currentCandidate, setCurrentCandidate] = useState<Candidate | null>(null);
-  const [currentTemplate, setCurrentTemplate] = useState<AssessmentTemplate | null>(null);
+  const [copySuccess, setCopySuccess] = useState<string | null>(null);
   
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(null);
-
+  const [compareList, setCompareList] = useState<string[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showLinkedInModal, setShowLinkedInModal] = useState(false);
-  const [isAnalyzingLinkedIn, setIsAnalyzingLinkedIn] = useState(false);
   const [isLoadingAction, setIsLoadingAction] = useState(false);
+  const [preSelectedCandidateId, setPreSelectedCandidateId] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [includeScenario, setIncludeScenario] = useState(true);
 
-  const [selectedModule, setSelectedModule] = useState('');
-  const [selectedLevel, setSelectedLevel] = useState('JUNIOR');
-  const [selectedIndustry, setSelectedIndustry] = useState('');
-  const [selectedImpl, setSelectedImpl] = useState(ImplementationType.PRIVATE);
-  const [existingTemplate, setExistingTemplate] = useState<AssessmentTemplate | null>(null);
+  const formatDiscLabel = (val: string) => {
+    if (!val) return 'N/A';
+    const v = val.toUpperCase();
+    if (v.includes('DOMIN') && !v.includes('(D)')) return 'DOMINÂNCIA (D)';
+    if (v.includes('INFLU') && !v.includes('(I)')) return 'INFLUÊNCIA (I)';
+    if (v.includes('ESTAB') && !v.includes('(S)')) return 'ESTABILIDADE (S)';
+    if (v.includes('CONFOR') && !v.includes('(C)')) return 'CONFORMIDADE (C)';
+    return v;
+  };
 
-  const [syncedIds, setSyncedIds] = useState<Set<string>>(new Set());
-
-  const checkCandidateStatus = async (candId: string) => {
+  const initApp = useCallback(async () => {
+    setIsLoadingApp(true);
     try {
-      const cand = await db.getCandidate(candId);
-      if (cand) {
-        if (cand.status === 'COMPLETED') {
-          setDbError("Avaliação já concluída.");
-          return;
-        }
-        
-        const allTemplates = await db.getTemplates();
-        const template = allTemplates.find(t => t.id === cand.templateId) || 
-                         allTemplates.find(t => t.id.includes(cand.id)) || 
-                         allTemplates.find(t => t.moduleId === cand.appliedModule && t.level === cand.appliedLevel);
-        
-        if (template) {
-          setCurrentCandidate(cand);
-          setCurrentTemplate(template);
-          setShowWelcomeScreen(true);
-          setDbError(null);
-        } else {
-          setDbError("Modelo de avaliação não encontrado no servidor para este candidato.");
-        }
-      } else {
-        setDbError("Candidato não encontrado no servidor Supabase.");
-      }
-    } catch (error) {
-      setDbError("Erro de comunicação com o servidor.");
+      const [cands, analyses, mods, inds, tmpls, ress] = await Promise.all([
+        db.getCandidates(), 
+        db.getLinkedInAnalyses(),
+        db.getModules(),
+        db.getIndustries(),
+        db.getTemplates(),
+        db.getResults()
+      ]);
+      setCandidates(cands || []);
+      setLinkedinAnalyses(analyses || []);
+      setModules(mods || []);
+      setIndustries(inds || []);
+      setTemplates(tmpls || []);
+      setResults(ress || []);
+      setUserRole(UserRole.ADMIN);
+    } catch (error) { 
+      setUserRole(UserRole.ADMIN); 
+    } finally { 
+      setIsLoadingApp(false); 
+    }
+  }, []);
+
+  useEffect(() => { initApp(); }, [initApp]);
+
+  const handleDeleteCandidate = async (candidateId: string) => {
+    if (!confirm('Deseja realmente excluir este candidato?')) return;
+    setIsLoadingAction(true);
+    try {
+      const analysis = linkedinAnalyses.find(a => a.candidateId === candidateId);
+      if (analysis) await db.deleteLinkedInAnalysis(analysis.id);
+      await db.deleteResultByCandidate(candidateId);
+      await db.deleteCandidate(candidateId);
+      await initApp();
+    } catch (error: any) {
+      alert(`Erro na exclusão: ${error.message}`);
+    } finally {
+      setIsLoadingAction(false);
     }
   };
 
-  useEffect(() => {
-    const initApp = async () => {
-      const hash = window.location.hash;
-      const isTestRoute = hash.includes('/test/');
-
-      if (isTestRoute) {
-        setUserRole(UserRole.CANDIDATE);
-        const parts = hash.split('/');
-        const candId = parts[parts.indexOf('test') + 1];
-        if (!candId) {
-          setDbError("URL Inválida.");
-          setIsLoadingApp(false);
-          return;
-        }
-        await checkCandidateStatus(candId);
-        setIsLoadingApp(false);
-      } else {
-        try {
-          const [cands, analyses, mods, inds, tmpls] = await Promise.all([
-            db.getCandidates(), 
-            db.getLinkedInAnalyses(),
-            db.getModules(),
-            db.getIndustries(),
-            db.getTemplates()
-          ]);
-          setCandidates(cands);
-          setLinkedinAnalyses(analyses);
-          setModules(mods);
-          setIndustries(inds);
-          setTemplates(tmpls);
-          setSyncedIds(new Set(cands.map(c => c.id)));
-          
-          if (mods.length > 0) setSelectedModule(mods[0].id);
-          if (inds.length > 0) setSelectedIndustry(inds[0].name);
-          setUserRole(UserRole.ADMIN);
-        } catch (error) { 
-          setUserRole(UserRole.ADMIN); 
-        } finally { 
-          setIsLoadingApp(false); 
-        }
-      }
-    };
-    initApp();
-  }, []);
-
-  // Lógica de detecção de template existente aprimorada
-  useEffect(() => {
-    if (showAddModal) {
-      const match = templates.find(t => 
-        (t.moduleId === selectedModule) && 
-        (t.level === selectedLevel) && 
-        (t.industryId === selectedIndustry) && 
-        (t.implementationType === selectedImpl)
-      );
-      setExistingTemplate(match || null);
-    }
-  }, [selectedModule, selectedLevel, selectedIndustry, selectedImpl, showAddModal, templates]);
-
-  const handleCreateTest = async (candData: any) => {
+  const handleCreateLinkedInAnalysis = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     setIsLoadingAction(true);
+    const formData = new FormData(e.currentTarget);
+    const profileLink = formData.get('profileLink') as string;
+    const candidateId = preSelectedCandidateId || (formData.get('candidateId') as string);
     try {
-      const { module, industry, level, implType, name, email } = candData;
-      const candId = `cand-${Date.now()}`;
-      let finalTemplateId = '';
+      const analysis = await analyzeLinkedInProfile(profileLink);
+      analysis.candidateId = candidateId;
+      await db.saveLinkedInAnalysis(analysis);
+      await initApp();
+      setShowLinkedInModal(false);
+      setPreSelectedCandidateId(null);
+    } catch (err: any) {
+      alert(`Erro na análise: ${err.message}`);
+    } finally {
+      setIsLoadingAction(false);
+    }
+  };
 
-      if (existingTemplate) {
-        finalTemplateId = existingTemplate.id;
-      } else {
-        const blocks = [BlockType.MASTER_DATA, BlockType.PROCESS, BlockType.SOFT_SKILL, BlockType.SAP_ACTIVATE, BlockType.CLEAN_CORE];
-        const allBankQuestions = await db.getBankQuestions();
-        const bankQuestions = allBankQuestions.filter(q => q.module === module && q.seniority === level);
-        
-        // Paralelizar a geração de perguntas dinâmicas por bloco
-        const blockPromises = blocks.map(async (block) => {
-          const fromBank = bankQuestions.filter(q => q.block === block).sort(() => 0.5 - Math.random()).slice(0, 8);
-          const dynamicCount = 10 - fromBank.length;
-          let dynamic: Question[] = [];
-          
-          if (dynamicCount > 0) {
-            dynamic = await generateDynamicQuestions(module, industry, level as SeniorityLevel, implType as ImplementationType, block, dynamicCount);
-          }
-          
-          const weight = (BLOCK_WEIGHTS[module] || BLOCK_WEIGHTS['default'])[block];
-          return [...fromBank, ...dynamic].map((q, idx) => ({ 
-            ...q, 
-            id: `q-${candId}-${block}-${idx}`, 
-            weight 
-          }));
-        });
+  const handleCreateCandidate = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsLoadingAction(true);
+    setStatusMessage("Preparando Avaliação Estratégica...");
+    
+    const formData = new FormData(e.currentTarget);
+    const moduleId = formData.get('module') as string;
+    const level = formData.get('level') as SeniorityLevel;
+    const industryId = formData.get('industry') as string;
+    const implType = formData.get('implType') as ImplementationType;
 
-        const results = await Promise.all(blockPromises);
-        const allTestQuestions = results.flat();
+    try {
+      setStatusMessage("Gemini está desenhando Pack IA exclusivo...");
+      const counts = {
+        [BlockType.MASTER_DATA]: 5, [BlockType.PROCESS]: 5,
+        [BlockType.SOFT_SKILL]: 5, [BlockType.SAP_ACTIVATE]: 5,
+        [BlockType.CLEAN_CORE]: 5
+      };
 
-        const template: AssessmentTemplate = {
-          id: `tmpl-${candId}`,
-          name: `Avaliação ${module.toUpperCase()} - ${name}`,
-          moduleId: module, 
-          industryId: industry, 
-          level: level as SeniorityLevel,
-          implementationType: implType as ImplementationType, 
-          questions: allTestQuestions,
-          createdAt: new Date().toISOString()
-        };
-        
-        const templateSync = await db.saveTemplate(template);
-        if (!templateSync.success) throw new Error(templateSync.error);
-        
-        finalTemplateId = template.id;
-        // Atualizar lista local de templates
-        setTemplates(await db.getTemplates());
+      const newQuestions = await generateBulkQuestions(moduleId, industryId, level, implType, counts);
+      let scenarios: any[] = [];
+      
+      if (includeScenario) {
+        setStatusMessage("Adicionando Desafio Prático ao Pack...");
+        const newScenario = await generateSAPScenario(moduleId, level, industryId, implType);
+        scenarios = [newScenario];
       }
 
-      const newCand: Candidate = {
-        id: candId, 
-        name, 
-        email, 
-        appliedModule: module, 
-        appliedIndustry: industry, 
-        appliedLevel: level as SeniorityLevel,
-        implementationType: implType as ImplementationType, 
-        status: 'PENDING', 
-        templateId: finalTemplateId,
-        testLink: `${window.location.origin}${window.location.pathname}#/test/${candId}`,
+      const newTemplate: AssessmentTemplate = {
+        id: `pack-${moduleId}-${level}-${industryId}-${Date.now()}`,
+        name: `Pack IA: ${moduleId.toUpperCase()} ${level} (${includeScenario ? '+Case' : 'Apenas Q.'})`,
+        moduleId, industryId, level, implementationType: implType,
+        questions: newQuestions,
+        scenarios: scenarios,
         createdAt: new Date().toISOString()
       };
 
-      const candSync = await db.saveCandidate(newCand);
-      
-      if (candSync.success) {
-        setCandidates(prev => [newCand, ...prev]);
-        setSyncedIds(prev => new Set([...prev, candId]));
-        setShowAddModal(false);
-        alert('Teste criado com sucesso!');
-      } else {
-        throw new Error(candSync.error);
-      }
-    } catch (e: any) {
-      console.error("Erro no handleCreateTest:", e);
-      alert(`Falha na criação: ${e.message || 'Erro desconhecido'}`);
-    } finally { 
-      setIsLoadingAction(false); 
+      await db.saveTemplate(newTemplate);
+
+      const newCand: Candidate = {
+        id: `cand-${Date.now()}`,
+        name: formData.get('name') as string,
+        email: formData.get('email') as string,
+        appliedModule: moduleId, appliedIndustry: industryId, appliedLevel: level,
+        implementationType: implType, status: 'PENDING',
+        templateId: newTemplate.id,
+        testLink: `${window.location.origin}/test/${Date.now()}`,
+        createdAt: new Date().toISOString()
+      };
+
+      await db.saveCandidate(newCand);
+      await initApp();
+      setShowAddModal(false);
+    } catch (error: any) {
+      alert(`Falha: ${error.message}`);
+    } finally {
+      setIsLoadingAction(false);
+      setStatusMessage(null);
     }
   };
 
-  const handleSyncCandidate = async (cand: Candidate) => {
-    setIsLoadingAction(true);
-    const sync = await db.saveCandidate(cand);
-    if (sync.success) {
-       setSyncedIds(prev => new Set([...prev, cand.id]));
-       alert("Sincronizado!");
-    } else {
-       alert(`Falha: ${sync.error}`);
-    }
-    setIsLoadingAction(false);
+  const copyLink = (link: string, id: string) => {
+    navigator.clipboard.writeText(link);
+    setCopySuccess(id);
+    setTimeout(() => setCopySuccess(null), 2000);
   };
 
-  const handleDeleteCandidate = async (id: string, name: string) => {
-    if (confirm(`Excluir ${name}?`)) {
-      await db.deleteCandidate(id);
-      setCandidates(prev => prev.filter(c => c.id !== id));
-    }
+  const toggleCompare = (id: string) => {
+    setCompareList(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
-  const handleAnalyzeLinkedIn = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const profileLink = formData.get('profileLink') as string;
-    if (!profileLink) return;
-    setIsAnalyzingLinkedIn(true);
-    try {
-      const analysis = await analyzeLinkedInProfile(profileLink);
-      await db.saveLinkedInAnalysis(analysis);
-      setLinkedinAnalyses(await db.getLinkedInAnalyses());
-      setShowLinkedInModal(false);
-      setSelectedAnalysisId(analysis.id);
-      setActiveTab('linkedin_detail');
-    } catch (error) {
-      alert("Erro ao analisar perfil.");
-    } finally { setIsAnalyzingLinkedIn(false); }
-  };
-
-  if (isLoadingApp) return <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white gap-4"><Loader2 className="animate-spin" /><p>Conectando...</p></div>;
-  
-  if (dbError) return (
-    <div className="h-screen flex flex-col items-center justify-center p-8 text-center bg-slate-50">
-      <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-6"><WifiOff className="text-red-500" size={40} /></div>
-      <h2 className="text-2xl font-bold text-slate-800 mb-2">Avaliação Indisponível</h2>
-      <p className="text-slate-500 max-w-sm mb-8">{dbError}</p>
-      <button onClick={() => window.location.reload()} className="px-8 py-3 bg-slate-900 text-white font-bold rounded-2xl flex items-center gap-2"><RefreshCw size={18} /> Tentar Novamente</button>
-    </div>
-  );
-
-  if (userRole === UserRole.CANDIDATE && currentCandidate && currentTemplate) {
-    if (showWelcomeScreen) return <TestWelcome candidate={currentCandidate} template={currentTemplate} onStart={() => { setShowWelcomeScreen(false); setIsTakingTest(true); }} />;
-    if (isTakingTest) return <TestRunner candidate={currentCandidate} template={currentTemplate} onComplete={() => window.location.reload()} />;
+  if (isLoadingApp) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white gap-4">
+        <Loader2 className="animate-spin text-blue-500" size={40} />
+        <p className="text-sm font-bold uppercase tracking-widest text-slate-400">Carregando Ecossistema SAP...</p>
+      </div>
+    );
   }
 
   return (
@@ -302,41 +215,63 @@ const App: React.FC = () => {
       {activeTab === 'candidates' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
-            <h2 className="text-3xl font-bold">Candidatos</h2>
-            <button onClick={() => setShowAddModal(true)} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-2xl shadow-lg flex items-center gap-2 hover:bg-blue-700 transition-all">
-              <Plus size={20} /> Novo Teste
-            </button>
+            <h2 className="text-3xl font-bold text-slate-900">Candidatos</h2>
+            <div className="flex gap-3">
+              {compareList.length >= 2 && (
+                <button onClick={() => setActiveTab('comparison')} className="px-6 py-3 bg-slate-900 text-white font-black rounded-2xl flex items-center gap-2 shadow-xl animate-pulse">
+                   Comparar ({compareList.length})
+                </button>
+              )}
+              <button onClick={() => setShowAddModal(true)} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-2xl flex items-center gap-2 shadow-lg"><Plus size={20} /> Novo Teste</button>
+            </div>
           </div>
-          <div className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm">
+          <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
             <table className="w-full text-left">
               <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
-                <tr><th className="px-8 py-4">Sincronismo</th><th className="px-8 py-4">Candidato</th><th className="px-8 py-4">Perfil</th><th className="px-8 py-4">Status</th><th className="px-8 py-4 text-right">Ações</th></tr>
+                <tr className="border-b">
+                  <th className="px-8 py-5">Comparar</th>
+                  <th className="px-8 py-5">Candidato</th>
+                  <th className="px-8 py-5">Status</th>
+                  <th className="px-8 py-5 text-right">Ações</th>
+                </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
-                {candidates.length === 0 ? (
-                  <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-400 italic">Nenhum candidato.</td></tr>
-                ) : (
-                  candidates.map(c => (
-                    <tr key={c.id} className="hover:bg-slate-50 transition-colors group">
+              <tbody className="divide-y">
+                {candidates.length > 0 ? candidates.map(c => {
+                  const analysis = linkedinAnalyses.find(a => a.candidateId === c.id);
+                  const result = results.find(r => r.candidateId === c.id);
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-50">
                       <td className="px-8 py-5">
-                        <div className="flex items-center gap-2">
-                          {syncedIds.has(c.id) ? (
-                            <div className="flex items-center gap-2 text-green-500 font-bold text-[10px] uppercase"><Cloud size={18} /> <span>OK</span></div>
-                          ) : (
-                            <button onClick={() => handleSyncCandidate(c)} className="flex items-center gap-2 text-red-500 font-bold text-[10px] uppercase animate-pulse"><CloudOff size={18} /> <span>Local</span></button>
-                          )}
-                        </div>
+                        <input type="checkbox" checked={compareList.includes(c.id)} onChange={() => toggleCompare(c.id)} className="w-5 h-5 rounded border-slate-300 text-blue-600" />
                       </td>
-                      <td className="px-8 py-5"><div className="font-bold">{c.name}</div><div className="text-xs text-slate-400">{c.email}</div></td>
-                      <td className="px-8 py-5"><span className="px-2 py-1 bg-slate-100 text-[10px] font-bold rounded uppercase">{c.appliedModule} - {c.appliedLevel}</span></td>
-                      <td className="px-8 py-5"><span className={`text-[10px] font-black uppercase ${c.status === 'COMPLETED' ? 'text-green-600' : 'text-amber-600'}`}>{c.status}</span></td>
+                      <td className="px-8 py-5">
+                        <div className="font-bold text-slate-800">{c.name}</div>
+                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{c.appliedModule} - {c.appliedLevel}</div>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className={`px-2 py-1 text-[9px] font-black rounded-full uppercase border ${c.status === 'COMPLETED' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                          {c.status}
+                        </span>
+                      </td>
                       <td className="px-8 py-5 text-right flex justify-end gap-2">
-                        <button onClick={() => { navigator.clipboard.writeText(c.testLink); alert('Link copiado!'); }} className="p-2 bg-slate-50 rounded-lg hover:bg-blue-50 text-blue-600"><Copy size={16} /></button>
-                        {c.status === 'COMPLETED' && <button onClick={() => { setSelectedCandidateId(c.id); setActiveTab('report'); }} className="p-2 bg-slate-50 rounded-lg hover:bg-green-50 text-green-600"><ExternalLink size={16} /></button>}
-                        <button onClick={() => handleDeleteCandidate(c.id, c.name)} className="p-2 bg-slate-50 rounded-lg hover:bg-red-50 text-red-400 opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
+                        {c.status === 'COMPLETED' ? (
+                          <button onClick={() => { setSelectedCandidateId(c.id); setActiveTab('report'); }} className="p-2 text-green-600 bg-green-50 rounded-xl"><FileText size={16} /></button>
+                        ) : (
+                          <button onClick={() => copyLink(c.testLink, c.id)} className={`p-2 rounded-xl transition-all ${copySuccess === c.id ? 'text-green-600 bg-green-50' : 'text-blue-600 bg-blue-50'}`}>
+                            {copySuccess === c.id ? <Check size={16} /> : <Copy size={16} />}
+                          </button>
+                        )}
+                        {analysis ? (
+                          <button onClick={() => { setSelectedAnalysisId(analysis.id); setActiveTab('linkedin_detail'); }} className="p-2 text-indigo-600 bg-indigo-50 rounded-xl"><BrainCircuit size={16} /></button>
+                        ) : (
+                          <button onClick={() => { setPreSelectedCandidateId(c.id); setShowLinkedInModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl"><BrainCircuit size={16} /></button>
+                        )}
+                        <button onClick={() => handleDeleteCandidate(c.id)} className="p-2 text-red-400 hover:text-red-600"><Trash2 size={16} /></button>
                       </td>
                     </tr>
-                  ))
+                  );
+                }) : (
+                  <tr><td colSpan={4} className="px-8 py-12 text-center text-slate-400 italic">Nenhum candidato.</td></tr>
                 )}
               </tbody>
             </table>
@@ -344,24 +279,28 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {activeTab === 'comparison' && <ComparisonView candidates={candidates.filter(c => compareList.includes(c.id))} results={results.filter(r => compareList.includes(r.candidateId))} linkedinAnalyses={linkedinAnalyses} onBack={() => setActiveTab('candidates')} />}
       {activeTab === 'linkedin_analyses' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
-            <h2 className="text-3xl font-bold">Análise DISC LinkedIn</h2>
-            <button onClick={() => setShowLinkedInModal(true)} className="px-6 py-3 bg-[#0077b5] text-white font-bold rounded-2xl shadow-lg flex items-center gap-2 hover:bg-[#005c8a] transition-all"><Linkedin size={20} /> Nova Análise</button>
+            <h2 className="text-3xl font-bold text-slate-900">Análises DISC</h2>
+            <button onClick={() => { setPreSelectedCandidateId(null); setShowLinkedInModal(true); }} className="px-6 py-3 bg-[#0077b5] text-white font-bold rounded-2xl flex items-center gap-2"><Linkedin size={20} /> Nova Análise</button>
           </div>
-          <div className="bg-white rounded-[32px] overflow-hidden border border-slate-100 shadow-sm">
+          <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
             <table className="w-full text-left">
               <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
-                <tr><th className="px-8 py-5">Perfil</th><th className="px-8 py-5">Sugestão Técnica</th><th className="px-8 py-5">DISC Predominante</th><th className="px-8 py-5 text-right">Detalhes</th></tr>
+                <tr className="border-b">
+                  <th className="px-8 py-5">Candidato</th>
+                  <th className="px-8 py-5">Predominante</th>
+                  <th className="px-8 py-5 text-right">Ações</th>
+                </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y">
                 {linkedinAnalyses.map(a => (
-                  <tr key={a.id} className="hover:bg-slate-50 transition-all group cursor-pointer" onClick={() => { setSelectedAnalysisId(a.id); setActiveTab('linkedin_detail'); }}>
-                    <td className="px-8 py-5"><div className="flex items-center gap-3"><div className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Linkedin size={16} /></div><div className="font-bold text-slate-700 truncate max-w-[200px]">{a.profileLink}</div></div></td>
-                    <td className="px-8 py-5"><div className="flex gap-1.5"><span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[9px] font-black rounded uppercase border border-blue-100">{a.suggestedModule}</span><span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black rounded uppercase border border-amber-100">{a.suggestedLevel}</span></div></td>
-                    <td className="px-8 py-5"><span className="font-bold text-slate-600 flex items-center gap-2"><BrainCircuit size={14} className="text-purple-500" />{a.disc.predominant}</span></td>
-                    <td className="px-8 py-5 text-right"><div className="inline-flex p-2 bg-white rounded-xl border border-slate-100 group-hover:bg-blue-600 group-hover:text-white transition-all"><ExternalLink size={16} /></div></td>
+                  <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => { setSelectedAnalysisId(a.id); setActiveTab('linkedin_detail'); }}>
+                    <td className="px-8 py-5 font-bold text-sm text-slate-700">{candidates.find(c => c.id === a.candidateId)?.name || 'N/A'}</td>
+                    <td className="px-8 py-5"><span className="px-3 py-1 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded-full uppercase border border-indigo-100">{formatDiscLabel(a.disc?.predominant)}</span></td>
+                    <td className="px-8 py-5 text-right flex justify-end gap-2"><ExternalLink size={16} className="text-slate-300" /></td>
                   </tr>
                 ))}
               </tbody>
@@ -371,71 +310,89 @@ const App: React.FC = () => {
       )}
 
       {activeTab === 'linkedin_detail' && selectedAnalysisId && <LinkedInAnalysisDetail analysisId={selectedAnalysisId} onBack={() => setActiveTab('linkedin_analyses')} />}
-      {activeTab === 'config' && <SettingsView />}
-      {activeTab === 'bank' && <QuestionBankView />}
+      {activeTab === 'report' && selectedCandidateId && <CandidateReportView candidateId={selectedCandidateId} onBack={() => setActiveTab('candidates')} />}
       {activeTab === 'templates' && <TemplatesView />}
-      {activeTab === 'report' && selectedCandidateId && <CandidateReportView candidateId={selectedCandidateId} onBack={() => setActiveTab('dashboard')} />}
+      {activeTab === 'bank' && <QuestionBankView />}
+      {activeTab === 'config' && <SettingsView />}
 
+      {/* Modal Criar Novo Candidato/Teste */}
       {showAddModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white w-full max-w-xl rounded-[32px] p-8 shadow-2xl animate-in zoom-in duration-200">
-            <h3 className="text-2xl font-bold mb-6">Configurar Nova Avaliação</h3>
-            <form onSubmit={(e) => { e.preventDefault(); handleCreateTest(Object.fromEntries(new FormData(e.currentTarget))); }} className="space-y-6">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="bg-blue-600 p-8 flex items-center justify-between text-white">
+              <h3 className="text-xl font-bold flex items-center gap-2"><Plus /> Novo Teste de Candidato</h3>
+              <button onClick={() => setShowAddModal(false)}><X /></button>
+            </div>
+            <form onSubmit={handleCreateCandidate} className="p-8 space-y-6">
               <div className="grid grid-cols-2 gap-4">
-                <input required name="name" placeholder="Nome do Candidato" className="w-full px-4 py-3 bg-slate-50 rounded-xl border border-slate-100" />
-                <input required name="email" type="email" placeholder="email@exemplo.com" className="w-full px-4 py-3 bg-slate-50 rounded-xl border border-slate-100" />
+                <input required name="name" placeholder="Nome Completo" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                <input required name="email" type="email" placeholder="Email Profissional" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
               </div>
-              <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100 space-y-4">
+
+              <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-2">
+                     <Wand2 size={16} className="text-blue-600" />
+                     <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Critérios do Pack AI</h4>
+                   </div>
+                   <button 
+                     type="button" 
+                     onClick={() => setIncludeScenario(!includeScenario)}
+                     className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all font-black text-[9px] uppercase tracking-widest border ${includeScenario ? 'bg-indigo-600 text-white border-indigo-700 shadow-md' : 'bg-white text-slate-400 border-slate-200'}`}
+                   >
+                     {includeScenario ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                     Incluir Desafio Prático
+                   </button>
+                </div>
+                
                 <div className="grid grid-cols-2 gap-4">
-                  <select name="module" value={selectedModule} onChange={(e) => setSelectedModule(e.target.value)} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-bold">
+                  <select required name="module" className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold">
                     {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
-                  <select name="level" value={selectedLevel} onChange={(e) => setSelectedLevel(e.target.value)} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-bold">
-                    <option value="JUNIOR">Junior</option><option value="PLENO">Pleno</option><option value="SENIOR">Senior</option>
+                  <select required name="level" className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold">
+                    {Object.values(SeniorityLevel).map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <select name="industry" value={selectedIndustry} onChange={(e) => setSelectedIndustry(e.target.value)} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-bold">
-                    {industries.map(i => <option key={i.id} value={i.name}>{i.name}</option>)}
+                  <select required name="implType" className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold">
+                    {Object.values(ImplementationType).map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
-                  <select name="implType" value={selectedImpl} onChange={(e) => setSelectedImpl(e.target.value as ImplementationType)} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-bold">
-                    <option value={ImplementationType.PRIVATE}>S/4HANA Private</option><option value={ImplementationType.PUBLIC}>S/4HANA Public</option>
+                  <select required name="industry" className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold">
+                    {industries.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                   </select>
                 </div>
               </div>
 
-              {existingTemplate && (
-                <div className="flex items-center gap-2 p-4 bg-green-50 border border-green-100 rounded-2xl text-green-700 text-xs font-bold animate-in fade-in">
-                  <CheckCircle2 size={16} /> 
-                  Modelo existente detectado. Nenhuma questão nova será gerada.
+              {isLoadingAction && (
+                <div className="p-4 bg-blue-50 rounded-2xl flex items-center gap-3 animate-in fade-in">
+                  <Loader2 className="animate-spin text-blue-600" size={20} />
+                  <p className="text-xs font-bold text-blue-800">{statusMessage}</p>
                 </div>
               )}
 
-              <button disabled={isLoadingAction} type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
-                {isLoadingAction ? <Loader2 className="animate-spin" /> : <Sparkles size={20} />} 
-                {isLoadingAction ? 'Criando e Sincronizando...' : 'Gerar e Sincronizar Teste'}
+              <button disabled={isLoadingAction} type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-600/20 flex items-center justify-center gap-3">
+                {isLoadingAction ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />} 
+                {isLoadingAction ? "Processando..." : "Gerar Teste e Link"}
               </button>
-              <button type="button" onClick={() => setShowAddModal(false)} className="w-full text-slate-400 font-bold text-sm">Cancelar</button>
             </form>
           </div>
         </div>
       )}
 
       {showLinkedInModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in">
             <div className="bg-[#0077b5] p-8 flex items-center justify-between text-white">
-              <div className="flex items-center gap-3"><Linkedin size={28} /><h3 className="text-xl font-bold">Análise DISC</h3></div>
-              <button onClick={() => setShowLinkedInModal(false)} className="text-white/50 hover:text-white"><X size={24} /></button>
+              <h3 className="text-xl font-bold flex items-center gap-2"><Linkedin /> Análise DISC IA</h3>
+              <button onClick={() => { setShowLinkedInModal(false); setPreSelectedCandidateId(null); }}><X /></button>
             </div>
-            <div className="p-8">
-              <form onSubmit={handleAnalyzeLinkedIn} className="space-y-6">
-                <input required name="profileLink" placeholder="URL do Perfil LinkedIn" className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none" />
-                <button disabled={isAnalyzingLinkedIn} type="submit" className="w-full py-5 bg-[#0077b5] text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 hover:bg-[#005c8a]">
-                  {isAnalyzingLinkedIn ? <Loader2 className="animate-spin" /> : <Zap size={20} />} Iniciar Análise
-                </button>
-              </form>
-            </div>
+            <form onSubmit={handleCreateLinkedInAnalysis} className="p-8 space-y-6">
+              <input required name="profileLink" placeholder="Link do LinkedIn" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+              <button disabled={isLoadingAction} type="submit" className="w-full py-5 bg-[#0077b5] text-white font-black rounded-2xl shadow-xl">
+                {isLoadingAction ? <Loader2 className="animate-spin" /> : <Sparkles size={18} />} 
+                {isLoadingAction ? "Analisando..." : "Gerar Análise"}
+              </button>
+            </form>
           </div>
         </div>
       )}

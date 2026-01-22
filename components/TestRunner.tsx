@@ -125,11 +125,14 @@ const TestRunner: React.FC<TestRunnerProps> = ({ candidate, template, onComplete
         score: finalTotalScore,
         blockScores: finalBlockScores,
         scenarioResults: scResult ? [scResult] : [],
+        // Fix: Explicitly cast opt to number to resolve 'unknown' type error during assignment
         answers: Object.entries(answers).map(([qid, opt]) => {
           const question = template.questions.find(q => q.id === qid);
+          const selectedOption = opt as number;
           return {
-            questionId: qid, selectedOption: opt,
-            isCorrect: opt === question?.correctAnswerIndex,
+            questionId: qid, 
+            selectedOption,
+            isCorrect: selectedOption === question?.correctAnswerIndex,
             block: (question?.block || BlockType.PROCESS) as BlockType
           };
         }),

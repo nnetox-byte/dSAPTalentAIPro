@@ -11,37 +11,172 @@ import {
   Scenario, 
   SeniorityLevel, 
   ImplementationType, 
-  BlockType 
+  BlockType,
+  Profile
 } from '../types';
 import { MODULES, INDUSTRIES } from '../constants';
 
 const SUPABASE_URL = "https://ymrnlsyyavbufvksernm.supabase.co"; 
 const SUPABASE_ANON_KEY = "sb_publishable_978GZ_Lyuixr2Pg_aiH2Eg_WDsN6JTj";
 
+const SUPER_ADMINS = ['nelson.neto@delaware.pro'];
+
 class DBService {
-  private client: SupabaseClient;
+  public client: SupabaseClient;
 
   constructor() {
     this.client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
 
-  onConnectionStatusChange(callback: (online: boolean) => void) {
-    callback(true);
+  // --- AUTENTICAÇÃO ---
+
+  async signIn(email: string, pass: string) {
+    const { data, error } = await this.client.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    return data;
   }
 
-  async retryConnection(): Promise<boolean> {
-    return true;
+  async signOut() {
+    await this.client.auth.signOut();
+  }
+
+  async updatePassword(newPassword: string) {
+    const { error } = await this.client.auth.updateUser({ password: newPassword });
+    if (error) throw error;
   }
 
   async seedDatabase() {
+    await this.saveModules(MODULES);
+    await this.saveIndustries(INDUSTRIES);
+  }
+
+  async getCurrentProfile(): Promise<Profile | null> {
     try {
-      await this.saveModules(MODULES);
-      await this.saveIndustries(INDUSTRIES);
-      return true;
-    } catch (e) {
-      console.error("Erro ao seedar banco:", e);
-      return false;
+      const { data: { session } } = await this.client.auth.getSession();
+      if (!session) return null;
+
+      const userEmail = (session.user.email || '').toLowerCase();
+      const userId = session.user.id;
+
+      // REGRA DE OURO: Nelson Neto (Super Admin Incondicional)
+      if (SUPER_ADMINS.includes(userEmail)) {
+        return {
+          id: userId,
+          email: userEmail,
+          perfil_id: 'super-admin-fixed',
+          perfil: {
+            nome: 'Super Administrador (Fixo)',
+            funcionalidades: ['dashboard', 'candidates', 'linkedin_analyses', 'templates', 'access_management', 'config', 'bank']
+          }
+        };
+      }
+
+      // Tenta buscar o perfil no banco
+      let { data, error } = await this.client
+        .from('profiles')
+        .select(`id, email, perfil_id, perfil:perfis (nome, funcionalidades:perfil_funcionalidades (funcionalidade:funcionalidades (slug)))`)
+        .eq('id', userId)
+        .maybeSingle();
+
+      // Se o usuário logou mas não tem perfil no banco, criamos um básico
+      if (!data && !error) {
+        const { data: defaultRole } = await this.client
+          .from('perfis')
+          .select('id')
+          .ilike('nome', '%Consultor%')
+          .limit(1)
+          .maybeSingle();
+
+        if (defaultRole) {
+          const { data: newProfile, error: createError } = await this.client
+            .from('profiles')
+            .insert({
+              id: userId,
+              email: userEmail,
+              perfil_id: defaultRole.id
+            })
+            .select(`id, email, perfil_id, perfil:perfis (nome, funcionalidades:perfil_funcionalidades (funcionalidade:funcionalidades (slug)))`)
+            .single();
+          
+          if (!createError) data = newProfile;
+        }
+      }
+
+      if (!data) return null;
+
+      const funcionalidades = data.perfil?.funcionalidades?.map((f: any) => 
+        f.funcionalidade?.slug || f.funcionalidade_id
+      ).filter(Boolean) || [];
+
+      return {
+        id: data.id,
+        email: data.email || userEmail,
+        perfil_id: data.perfil_id,
+        perfil: { nome: data.perfil?.nome || 'Sem Perfil', funcionalidades }
+      };
+    } catch (err) {
+      return null;
     }
+  }
+
+  // --- GESTÃO DE ACESSOS (PERFIS E FUNCIONALIDADES) ---
+
+  async getFeatures() {
+    const { data, error } = await this.client.from('funcionalidades').select('*').order('nome');
+    if (error) throw error;
+    return data;
+  }
+
+  async saveFeature(nome: string, slug: string) {
+    const { error } = await this.client.from('funcionalidades').upsert({ nome, slug });
+    if (error) throw error;
+  }
+
+  async deleteFeature(id: string) {
+    const { error } = await this.client.from('funcionalidades').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  async getProfilesWithFeatures() {
+    const { data, error } = await this.client
+      .from('perfis')
+      .select('*, funcionalidades:perfil_funcionalidades(funcionalidade_id)')
+      .order('nome');
+    if (error) throw error;
+    return data;
+  }
+
+  async saveProfile(id: string | undefined, nome: string, descricao: string, featureIds: string[]) {
+    // 1. Salva/Atualiza Perfil
+    const { data: profile, error: pError } = await this.client
+      .from('perfis')
+      .upsert({ id: id || undefined, nome, descricao })
+      .select()
+      .single();
+    
+    if (pError) throw pError;
+
+    // 2. Limpa relações antigas
+    await this.client.from('perfil_funcionalidades').delete().eq('perfil_id', profile.id);
+
+    // 3. Insere novas relações
+    if (featureIds.length > 0) {
+      const relations = featureIds.map(fid => ({ perfil_id: profile.id, funcionalidade_id: fid }));
+      const { error: rError } = await this.client.from('perfil_funcionalidades').insert(relations);
+      if (rError) throw rError;
+    }
+  }
+
+  async deleteProfile(id: string) {
+    const { error } = await this.client.from('perfis').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  // --- CANDIDATOS ---
+
+  async getCandidate(id: string): Promise<Candidate | null> {
+    const { data } = await this.client.from('candidates').select('*').eq('id', id).maybeSingle();
+    return data ? this.mapCandidateFromDB(data) : null;
   }
 
   private mapCandidateFromDB(data: any): Candidate {
@@ -62,17 +197,8 @@ class DBService {
   }
 
   async getCandidates(): Promise<Candidate[]> {
-    const { data, error } = await this.client.from('candidates').select('*');
-    if (error) {
-      console.error("❌ Erro ao buscar candidatos:", error);
-      return [];
-    }
+    const { data } = await this.client.from('candidates').select('*');
     return (data || []).map(this.mapCandidateFromDB);
-  }
-
-  async getCandidate(id: string): Promise<Candidate | null> {
-    const { data, error } = await this.client.from('candidates').select('*').eq('id', id).maybeSingle();
-    return data ? this.mapCandidateFromDB(data) : null;
   }
 
   async saveCandidate(candidate: Candidate) {
@@ -90,11 +216,7 @@ class DBService {
       created_at: candidate.createdAt,
       job_context: candidate.jobContext
     });
-
-    if (error) {
-      console.error("❌ Erro Supabase (saveCandidate):", error);
-      throw error;
-    }
+    if (error) throw error;
   }
 
   async deleteCandidate(id: string) {
@@ -104,8 +226,8 @@ class DBService {
   }
 
   async getTemplate(id: string): Promise<AssessmentTemplate | null> {
-    const { data, error } = await this.client.from('templates').select('*').eq('id', id).maybeSingle();
-    if (!data || error) return null;
+    const { data } = await this.client.from('templates').select('*').eq('id', id).maybeSingle();
+    if (!data) return null;
     return {
       id: data.id,
       name: data.name,
@@ -120,8 +242,7 @@ class DBService {
   }
 
   async getTemplates(): Promise<AssessmentTemplate[]> {
-    const { data, error } = await this.client.from('templates').select('*');
-    if (error) return [];
+    const { data } = await this.client.from('templates').select('*');
     return (data || []).map(d => ({
       id: d.id,
       name: d.name || 'Sem nome',
@@ -147,11 +268,7 @@ class DBService {
       scenarios: template.scenarios || [],
       createdAt: template.createdAt
     });
-
-    if (error) {
-      console.error("❌ Erro Supabase (saveTemplate):", error);
-      throw error;
-    }
+    if (error) throw error;
   }
 
   async deleteTemplate(id: string) {
@@ -159,11 +276,9 @@ class DBService {
     if (error) throw error;
   }
 
-  // --- CONFIGURAÇÕES VIA TABELA SETTINGS ---
-
   async getModules(): Promise<SAPModule[]> {
-    const { data, error } = await this.client.from('settings').select('value').eq('key', 'modules').maybeSingle();
-    if (error || !data || !data.value) return MODULES;
+    const { data } = await this.client.from('settings').select('value').eq('key', 'modules').maybeSingle();
+    if (!data || !data.value) return MODULES;
     return data.value;
   }
 
@@ -179,8 +294,8 @@ class DBService {
   }
 
   async getIndustries(): Promise<Industry[]> {
-    const { data, error } = await this.client.from('settings').select('value').eq('key', 'industries').maybeSingle();
-    if (error || !data || !data.value) return INDUSTRIES;
+    const { data } = await this.client.from('settings').select('value').eq('key', 'industries').maybeSingle();
+    if (!data || !data.value) return INDUSTRIES;
     return data.value;
   }
 
@@ -195,14 +310,8 @@ class DBService {
     await this.saveIndustries(updated);
   }
 
-  // --- FIM CONFIGURAÇÕES ---
-
   async getBankQuestions(): Promise<Question[]> {
-    const { data, error } = await this.client.from('bank_questions').select('*');
-    if (error) {
-      console.error("❌ Erro ao buscar questões do banco:", error);
-      return [];
-    }
+    const { data } = await this.client.from('bank_questions').select('*');
     return (data || []).map((q: any) => ({
       id: q.id,
       text: q.text,
@@ -233,18 +342,11 @@ class DBService {
       weight: q.weight
     }));
     const { error } = await this.client.from('bank_questions').upsert(dataToSave);
-    if (error) {
-      console.error("❌ Erro ao salvar questões no banco:", error);
-      throw error;
-    }
+    if (error) throw error;
   }
 
   async getBankScenarios(): Promise<Scenario[]> {
-    const { data, error } = await this.client.from('scenarios').select('*');
-    if (error) {
-      console.error("❌ Erro ao buscar cenários:", error);
-      return [];
-    }
+    const { data } = await this.client.from('scenarios').select('*');
     return (data || []).map(d => ({
       id: d.id,
       moduleId: d.module_id || d.moduleId,
@@ -269,10 +371,7 @@ class DBService {
       rubric: scenario.rubric,
       created_at: new Date().toISOString()
     });
-    if (error) {
-      console.error("❌ Erro Supabase (saveBankScenario):", error);
-      throw error;
-    }
+    if (error) throw error;
   }
 
   async deleteBankScenario(id: string): Promise<void> {
@@ -281,11 +380,7 @@ class DBService {
   }
 
   async getLinkedInAnalyses(): Promise<LinkedInAnalysis[]> {
-    const { data, error } = await this.client.from('linkedin_analyses').select('*');
-    if (error) {
-      console.error("❌ Erro ao buscar análises LinkedIn:", error);
-      return [];
-    }
+    const { data } = await this.client.from('linkedin_analyses').select('*');
     return (data || []).map(d => ({
       id: d.id,
       candidateId: d.candidate_id || d.candidateId,
@@ -313,19 +408,7 @@ class DBService {
       disc: analysis.disc,
       analyzedAt: analysis.analyzedAt 
     });
-    if (error) {
-      console.error("❌ Erro ao salvar análise LinkedIn:", error);
-      return { success: false, error: error.message };
-    }
-    return { success: true };
-  }
-
-  async deleteLinkedInAnalysis(id: string): Promise<{ success: boolean; error?: string }> {
-    const { error } = await this.client.from('linkedin_analyses').delete().eq('id', id);
-    if (error) {
-      console.error("❌ Erro ao excluir análise LinkedIn:", error);
-      return { success: false, error: error.message };
-    }
+    if (error) return { success: false, error: error.message };
     return { success: true };
   }
 
@@ -340,18 +423,12 @@ class DBService {
       scenarioResults: result.scenarioResults || [],
       completedAt: result.completedAt
     });
-
-    if (error) {
-      console.error("❌ Erro Supabase (saveResult):", error);
-      throw error;
-    }
-
+    if (error) throw error;
     await this.client.from('candidates').update({ status: 'COMPLETED' }).eq('id', result.candidateId);
   }
 
   async getResults(): Promise<AssessmentResult[]> {
-    const { data, error } = await this.client.from('results').select('*');
-    if (error) return [];
+    const { data } = await this.client.from('results').select('*');
     return (data || []).map(d => ({
       id: d.id,
       candidateId: d.candidateId || d.candidate_id,

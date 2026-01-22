@@ -1,9 +1,19 @@
 
 export enum UserRole {
-  ADMIN = 'ADMIN',
-  RH = 'RH',
-  DELIVERY = 'DELIVERY',
+  ADMIN = 'Administrador',
+  RH = 'Recrutador',
+  DELIVERY = 'Delivery',
   CANDIDATE = 'CANDIDATE'
+}
+
+export interface Profile {
+  id: string;
+  email: string;
+  perfil_id: string;
+  perfil?: {
+    nome: string;
+    funcionalidades?: string[]; // Slugs das funcionalidades permitidas
+  };
 }
 
 export enum SeniorityLevel {
@@ -58,7 +68,7 @@ export interface Scenario {
   title: string;
   description: string;
   guidelines: string;
-  rubric: { criterion: string; points: string }[]; // Alterado de Record para Array
+  rubric: { criterion: string; points: string }[];
 }
 
 export interface ScenarioResult {

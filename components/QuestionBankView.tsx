@@ -33,8 +33,9 @@ const QuestionBankView: React.FC = () => {
     [BlockType.CLEAN_CORE]: 5
   });
 
+  // Fix: Cast blockCounts values to number[] to ensure type safety in reduce operation
   const totalSelectedQuestions = useMemo(() => 
-    Object.values(blockCounts).reduce((a, b) => a + b, 0), 
+    (Object.values(blockCounts) as number[]).reduce((a, b) => a + b, 0), 
   [blockCounts]);
 
   const loadData = async () => {

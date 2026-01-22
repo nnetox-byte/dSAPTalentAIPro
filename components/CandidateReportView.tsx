@@ -3,10 +3,10 @@ import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, 
   ResponsiveContainer, Tooltip 
 } from 'recharts';
-import { Candidate, AssessmentResult, BlockType, SeniorityLevel } from '../types';
+import { Candidate, AssessmentResult, BlockType, SeniorityLevel, AssessmentTemplate } from '../types';
 import { db } from '../services/dbService';
 import { generateCandidateRecommendation } from '../services/geminiService';
-import { ArrowLeft, Mail, Briefcase, Award, Sparkles, RefreshCw, FileText, CheckCircle, ShieldCheck, Cpu, XCircle, AlertTriangle, Layers } from 'lucide-react';
+import { ArrowLeft, Mail, Briefcase, Award, Sparkles, RefreshCw, FileText, CheckCircle, ShieldCheck, Cpu, XCircle, AlertTriangle, Layers, MessageSquare, BrainCircuit, Loader2, Target } from 'lucide-react';
 import React, { useState, useEffect, useMemo } from 'react';
 
 interface CandidateReportViewProps {
@@ -17,6 +17,7 @@ interface CandidateReportViewProps {
 const CandidateReportView: React.FC<CandidateReportViewProps> = ({ candidateId, onBack }) => {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [result, setResult] = useState<AssessmentResult | null>(null);
+  const [template, setTemplate] = useState<AssessmentTemplate | null>(null);
   const [recommendation, setRecommendation] = useState<string>('');
   const [loadingAI, setLoadingAI] = useState<boolean>(false);
 
@@ -24,8 +25,16 @@ const CandidateReportView: React.FC<CandidateReportViewProps> = ({ candidateId, 
     const loadData = async () => {
       try {
         const [cands, res] = await Promise.all([db.getCandidates(), db.getResults()]);
-        setCandidate(cands.find(c => c.id === candidateId) || null);
-        setResult(res.find(r => r.candidateId === candidateId) || null);
+        const currentCand = cands.find(c => c.id === candidateId) || null;
+        const currentRes = res.find(r => r.candidateId === candidateId) || null;
+        
+        setCandidate(currentCand);
+        setResult(currentRes);
+
+        if (currentCand?.templateId) {
+          const tmpl = await db.getTemplate(currentCand.templateId);
+          setTemplate(tmpl);
+        }
       } catch (e) {
         console.error("Erro ao carregar relatório:", e);
       }
@@ -62,7 +71,12 @@ const CandidateReportView: React.FC<CandidateReportViewProps> = ({ candidateId, 
     }));
   }, [result]);
 
-  if (!candidate || !result) return null;
+  if (!candidate || !result) return (
+    <div className="flex flex-col items-center justify-center py-20">
+      <Loader2 className="animate-spin text-blue-600 mb-4" size={40} />
+      <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Carregando Relatório...</p>
+    </div>
+  );
 
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500 pb-20">
@@ -104,9 +118,9 @@ const CandidateReportView: React.FC<CandidateReportViewProps> = ({ candidateId, 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
         <div className="bg-white p-6 md:p-10 rounded-[32px] md:rounded-[40px] border border-slate-100 shadow-sm flex flex-col">
           <h3 className="text-lg md:text-xl font-bold text-slate-800 flex items-center gap-3 mb-6">
-            <Cpu size={24} className="text-blue-500" /> Competências
+            <Cpu size={24} className="text-blue-500" /> Competências por Pilar
           </h3>
-          <div className="h-[250px] md:h-[300px]">
+          <div className="h-[250px] md:h-[300px] mb-8">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={chartData}>
                 <PolarGrid stroke="#f1f5f9" />
@@ -117,29 +131,35 @@ const CandidateReportView: React.FC<CandidateReportViewProps> = ({ candidateId, 
               </RadarChart>
             </ResponsiveContainer>
           </div>
-          
-          <div className="mt-6 grid grid-cols-2 gap-3">
-            {chartData.map(item => (
-              <div key={item.subject} className="p-3 md:p-4 bg-slate-50 rounded-[20px] md:rounded-[24px] border border-slate-100 flex flex-col items-center">
-                <span className="text-[8px] md:text-[9px] font-black text-slate-400 uppercase tracking-widest text-center mb-1">{item.subject}</span>
-                <span className={`text-lg md:text-xl font-black ${item.score >= 7 ? 'text-green-600' : item.score >= 4 ? 'text-amber-600' : 'text-red-600'}`}>
-                  {item.score.toFixed(1)}
-                  <span className="text-slate-300 text-[10px] ml-1 font-bold">/10</span>
-                </span>
-              </div>
-            ))}
+
+          {/* Cards de notas por Pilar (RESTAURADO) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {Object.values(BlockType).map((block) => {
+              const score = result.blockScores?.[block] || 0;
+              return (
+                <div key={block} className="p-5 bg-slate-50 rounded-[24px] border border-slate-100 flex flex-col items-center text-center hover:bg-white hover:shadow-md transition-all">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{block}</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className={`text-2xl font-black ${score >= 7 ? 'text-green-600' : score >= 5 ? 'text-amber-500' : 'text-red-500'}`}>
+                      {score.toFixed(1)}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-300">/10</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
         <div className="bg-slate-900 p-6 md:p-10 rounded-[32px] md:rounded-[40px] shadow-2xl text-white flex flex-col">
           <h3 className="text-lg md:text-xl font-bold flex items-center gap-3 mb-6 md:mb-8">
-            <Sparkles size={24} className="text-blue-400" /> Análise IA
+            <Sparkles size={24} className="text-blue-400" /> Veredito da IA
           </h3>
           <div className="flex-1">
             {loadingAI ? (
               <div className="flex flex-col items-center justify-center py-12 gap-4">
                 <RefreshCw size={40} className="animate-spin text-blue-400" />
-                <p className="font-black text-[10px] uppercase tracking-widest animate-pulse">Analisando...</p>
+                <p className="font-black text-[10px] uppercase tracking-widest animate-pulse">Gerando Recomendação...</p>
               </div>
             ) : (
               <p className="text-slate-300 text-base md:text-lg leading-relaxed font-medium italic">"{recommendation}"</p>
@@ -147,6 +167,69 @@ const CandidateReportView: React.FC<CandidateReportViewProps> = ({ candidateId, 
           </div>
         </div>
       </div>
+
+      {/* Seção de Cenário Prático / Case Study */}
+      {result.scenarioResults && result.scenarioResults.length > 0 && (
+        <div className="bg-white rounded-[32px] md:rounded-[40px] border border-slate-100 shadow-sm overflow-hidden animate-in slide-in-from-bottom-4">
+          <div className="bg-indigo-600 p-6 md:p-8 flex items-center gap-4 text-white">
+            <BrainCircuit size={32} />
+            <div>
+              <h3 className="text-xl md:text-2xl font-black">Avaliação de Cenário Prático</h3>
+              <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest">Análise de Resolução de Problemas Complexos</p>
+            </div>
+          </div>
+          
+          <div className="p-6 md:p-10 space-y-10">
+            {result.scenarioResults.map((sr, idx) => {
+              const scenario = template?.scenarios?.find(s => s.id === sr.scenarioId);
+              return (
+                <div key={sr.id} className="space-y-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Cenário Apresentado */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <FileText size={14} /> Cenário Proposto
+                      </div>
+                      <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                        <h4 className="font-bold text-slate-800 mb-2">{scenario?.title || 'Cenário Técnico'}</h4>
+                        <p className="text-sm text-slate-600 leading-relaxed italic">"{scenario?.description || 'Descrição do caso não disponível.'}"</p>
+                      </div>
+                    </div>
+
+                    {/* Resposta do Candidato */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <MessageSquare size={14} /> Resposta do Candidato
+                      </div>
+                      <div className="p-6 bg-blue-50/30 rounded-3xl border border-blue-100 min-h-[150px]">
+                        <p className="text-sm text-slate-700 font-medium whitespace-pre-wrap leading-relaxed">
+                          {sr.answer}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Avaliação da IA sobre o Cenário */}
+                  <div className="bg-slate-900 rounded-[32px] p-6 md:p-8 flex flex-col md:flex-row gap-6 md:gap-8 items-start">
+                    <div className="flex flex-col items-center bg-indigo-600 p-6 rounded-2xl shrink-0 shadow-lg shadow-indigo-600/20">
+                      <span className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1">Nota Case</span>
+                      <span className="text-4xl font-black text-white">{sr.score.toFixed(1)}</span>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
+                        <Sparkles size={14} /> Feedback Técnico da IA
+                      </div>
+                      <p className="text-slate-300 text-sm md:text-base leading-relaxed font-medium italic">
+                        "{sr.feedback}"
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

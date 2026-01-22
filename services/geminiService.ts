@@ -15,10 +15,10 @@ export const generateSAPScenario = async (
   O cenário deve envolver um desafio técnico/funcional real que exija conhecimento de transações, parametrização ou arquitetura.
 
   REQUISITOS DO JSON:
-  - title: Um nome profissional para o caso.
-  - description: O problema detalhado (máximo 500 palavras).
-  - guidelines: O que o candidato deve explicar na resposta (ex: passos na SPRO, transações, lógica ABAP).
-  - rubric: Uma lista (array) de critérios de avaliação "invisíveis" (ex: [{"criterion": "identificação da causa raiz", "points": "5 pontos"}]).`;
+  - title: Um nome profissional para o caso em PORTUGUÊS.
+  - description: O problema detalhado (máximo 500 palavras) em PORTUGUÊS.
+  - guidelines: O que o candidato deve explicar na resposta (ex: passos na SPRO, transações, lógica ABAP) em PORTUGUÊS.
+  - rubric: Uma lista (array) de critérios de avaliação "invisíveis" (ex: [{"criterion": "identificação da causa raiz", "points": "5 pontos"}]) em PORTUGUÊS.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -77,7 +77,7 @@ export const evaluateScenarioResponse = async (
   RESPOSTA DO CANDIDATO:
   "${candidateAnswer}"
 
-  Dê uma nota de 0 a 10 e um feedback construtivo destacando o que faltou ou o que foi excelente. Retorne apenas JSON.`;
+  Dê uma nota de 0 a 10 e um feedback construtivo destacando o que faltou ou o que foi excelente. Retorne apenas JSON em PORTUGUÊS.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -104,10 +104,16 @@ export const evaluateScenarioResponse = async (
 
 export const analyzeLinkedInProfile = async (profileLink: string): Promise<LinkedInAnalysis> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `PAPEL: especialista DISC e Recrutador SAP. Analise o perfil do LinkedIn: ${profileLink}
+  const prompt = `PAPEL: Especialista DISC e Recrutador SAP Master. 
+  OBJETIVO: Analisar o perfil do LinkedIn: ${profileLink}
   
-  Utilize ferramentas de busca se necessário para coletar dados públicos.
-  Identifique o pilar comportamental DISC e sugira o fit técnico para o ecossistema SAP.`;
+  REQUISITOS CRÍTICOS:
+  1. TODA a resposta (executiveSummary, professionalDescription, photoAnalysis, postsAnalysis, industriesIdentified) deve ser escrita estritamente em PORTUGUÊS (BRASIL).
+  2. Identifique o pilar comportamental DISC (Dominância, Influência, Estabilidade, Conformidade).
+  3. Sugira o fit técnico para o ecossistema SAP (Módulo e Nível).
+  4. Analise as indústrias que o profissional domina e escreva-as em português.
+  
+  Use ferramentas de busca para coletar dados públicos atualizados.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -119,21 +125,21 @@ export const analyzeLinkedInProfile = async (profileLink: string): Promise<Linke
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            suggestedModule: { type: Type.STRING },
+            suggestedModule: { type: Type.STRING, description: "ID do módulo SAP (ex: abap, fi, mm, pmgt)" },
             suggestedLevel: { type: Type.STRING, enum: Object.values(SeniorityLevel) },
-            industriesIdentified: { type: Type.ARRAY, items: { type: Type.STRING } },
-            executiveSummary: { type: Type.STRING },
+            industriesIdentified: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Lista de indústrias em PORTUGUÊS" },
+            executiveSummary: { type: Type.STRING, description: "Resumo executivo do perfil em PORTUGUÊS" },
             suggestedImplementation: { type: Type.STRING, enum: Object.values(ImplementationType) },
             disc: {
               type: Type.OBJECT,
               properties: {
-                photoAnalysis: { type: Type.STRING },
-                summaryAnalysis: { type: Type.STRING },
-                postsAnalysis: { type: Type.STRING },
-                interactionAnalysis: { type: Type.STRING },
-                predominant: { type: Type.STRING },
-                secondary: { type: Type.STRING },
-                professionalDescription: { type: Type.STRING },
+                photoAnalysis: { type: Type.STRING, description: "Análise da foto em PORTUGUÊS" },
+                summaryAnalysis: { type: Type.STRING, description: "Análise do resumo em PORTUGUÊS" },
+                postsAnalysis: { type: Type.STRING, description: "Análise dos posts em PORTUGUÊS" },
+                interactionAnalysis: { type: Type.STRING, description: "Análise de interações em PORTUGUÊS" },
+                predominant: { type: Type.STRING, description: "Estilo predominante em PORTUGUÊS" },
+                secondary: { type: Type.STRING, description: "Estilo secundário em PORTUGUÊS" },
+                professionalDescription: { type: Type.STRING, description: "Descrição profissional DISC em PORTUGUÊS" },
                 scores: {
                   type: Type.OBJECT,
                   properties: {
@@ -144,10 +150,10 @@ export const analyzeLinkedInProfile = async (profileLink: string): Promise<Linke
                   }
                 }
               },
-              required: ["predominant", "secondary", "scores"]
+              required: ["predominant", "secondary", "scores", "professionalDescription"]
             }
           },
-          required: ["suggestedModule", "suggestedLevel", "disc"]
+          required: ["suggestedModule", "suggestedLevel", "disc", "executiveSummary", "industriesIdentified"]
         }
       }
     });
@@ -170,7 +176,7 @@ export const analyzeLinkedInProfile = async (profileLink: string): Promise<Linke
 export const generateCandidateRecommendation = async (candidate: Candidate, result: AssessmentResult): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const scoresText = Object.entries(result.blockScores).map(([block, score]) => `${block}: ${score.toFixed(1)}/10`).join(", ");
-  const prompt = `Analise o desempenho deste candidato SAP e forneça uma recomendação profissional curta:
+  const prompt = `Analise o desempenho deste candidato SAP e forneça uma recomendação profissional curta em PORTUGUÊS:
     Candidato: ${candidate.name}
     Módulo: ${candidate.appliedModule}
     Nível: ${candidate.appliedLevel}
@@ -183,12 +189,25 @@ export const generateCandidateRecommendation = async (candidate: Candidate, resu
   } catch (error) { return ""; }
 };
 
-export const generateBulkQuestions = async (moduleId: string, industryId: string, level: SeniorityLevel, implementationType: ImplementationType, counts: Record<BlockType, number>): Promise<Question[]> => {
+export const generateBulkQuestions = async (
+  moduleId: string, 
+  industryId: string, 
+  level: SeniorityLevel, 
+  implementationType: ImplementationType, 
+  counts: Record<BlockType, number>,
+  jobContext?: string
+): Promise<Question[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const totalQuestions = (Object.values(counts) as number[]).reduce((a, b) => a + b, 0);
   
+  let contextInstruction = "";
+  if (jobContext && jobContext.trim().length > 0) {
+    contextInstruction = `\nIMPORTANTE: Aproximadamente 20% das questões (totalizando 5 questões distribuídas entre os blocos) DEVEM ser focadas especificamente no seguinte contexto de vaga fornecido pelo recrutador: "${jobContext}". Garanta que esses temas sejam integrados de forma técnica e realista ao módulo ${moduleId} e à indústria ${industryId}.`;
+  }
+
   const prompt = `Gere ${totalQuestions} questões SAP para o módulo ID: ${moduleId} na indústria ID: ${industryId} para nível ${level} no modelo ${implementationType}.
-  Siga a distribuição exata por blocos (pilares): ${JSON.stringify(counts)}.
+  Siga a distribuição exata por blocos (pilares): ${JSON.stringify(counts)}.${contextInstruction}
+  TODA a questão, opções e explicações devem ser em PORTUGUÊS (BRASIL).
   Retorne um ARRAY de objetos JSON seguindo estritamente o esquema fornecido.`;
   
   try {
@@ -232,7 +251,7 @@ export const generateBulkQuestions = async (moduleId: string, industryId: string
 
 export const generateDynamicQuestions = async (moduleId: string, industryName: string, level: SeniorityLevel, implementationType: ImplementationType, block: BlockType, count: number): Promise<Question[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Gere ${count} questões SAP para o bloco ${block} no contexto de ${moduleId} (${industryName}) nível ${level} (${implementationType}).`;
+  const prompt = `Gere ${count} questões SAP para o bloco ${block} no contexto de ${moduleId} (${industryName}) nível ${level} (${implementationType}). Responda em PORTUGUÊS.`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",

@@ -95,6 +95,7 @@ export interface Candidate {
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
   templateId?: string;
   createdAt: string;
+  jobContext?: string;
 }
 
 export interface AssessmentResult {

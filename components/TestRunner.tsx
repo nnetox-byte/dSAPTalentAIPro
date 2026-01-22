@@ -109,7 +109,6 @@ const TestRunner: React.FC<TestRunnerProps> = ({ candidate, template, onComplete
         finalBlockScores[b] = blockScores[b].max > 0 ? (blockScores[b].earned / blockScores[b].max) * 10 : 0;
       });
 
-      // Média final (70% Questões + 30% Cenário se existir)
       let finalTotalScore = (totalScore / maxPossibleScore) * 50;
       if (scResult) {
         const scenarioWeight = 15;
@@ -141,6 +140,8 @@ const TestRunner: React.FC<TestRunnerProps> = ({ candidate, template, onComplete
       await db.saveResult(result);
       setFinalResult(result);
       setIsFinished(true);
+      // Notifica o App.tsx que o teste acabou para que ele trave a tela de TestComplete
+      onComplete(result);
     } catch (e: any) {
       alert(`Erro: ${e.message}`);
     } finally {
@@ -158,9 +159,10 @@ const TestRunner: React.FC<TestRunnerProps> = ({ candidate, template, onComplete
           </div>
           <div className="p-10 text-center space-y-6">
             <p className="text-slate-600 text-lg leading-relaxed">{completionMessage.body}</p>
-            <button onClick={() => onComplete(finalResult!)} className="w-full py-4 bg-slate-900 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-2">
-              <Home size={18} /> Voltar ao Início
-            </button>
+            <div className="pt-6 border-t border-slate-50">
+               <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-relaxed">Avaliação Finalizada.</p>
+               <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mt-1">Você já pode fechar esta aba do navegador.</p>
+            </div>
           </div>
         </div>
       </div>

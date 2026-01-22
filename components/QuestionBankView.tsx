@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, Filter, Trash2, Eye, Sparkles, RefreshCw, Layers, HardHat, Factory, X, Calculator, Cloud, BrainCircuit, BookOpen, Info, CheckCircle2, Loader2, ChevronRight } from 'lucide-react';
+import { Plus, Search, Filter, Trash2, Eye, Sparkles, RefreshCw, Layers, HardHat, Factory, X, Calculator, Cloud, BrainCircuit, BookOpen, Info, CheckCircle2, Loader2, ChevronRight, AlertCircle, Wand2 } from 'lucide-react';
 import { db } from '../services/dbService';
 import { Question, BlockType, SeniorityLevel, AssessmentTemplate, SAPModule, Industry, ImplementationType, Scenario } from '../types';
 import { generateBulkQuestions, generateSAPScenario } from '../services/geminiService';
@@ -46,10 +46,10 @@ const QuestionBankView: React.FC = () => {
         db.getModules(),
         db.getIndustries()
       ]);
-      setQuestions(qs);
-      setScenarios(scs);
-      setModules(ms);
-      setIndustries(inds);
+      setQuestions(qs || []);
+      setScenarios(scs || []);
+      setModules(ms || []);
+      setIndustries(inds || []);
     } catch (e) {
       console.error("❌ Erro ao carregar dados do banco:", e);
     } finally {
@@ -61,23 +61,38 @@ const QuestionBankView: React.FC = () => {
     loadData();
   }, []);
 
+  // Auxiliares para exibição de nomes amigáveis
+  const getModuleName = (id: string) => modules.find(m => m.id === id)?.name || id;
+  const getIndustryName = (id: string) => industries.find(i => i.id === id)?.name || id;
+
   const filteredQuestions = useMemo(() => {
     return questions.filter(q => {
       const qBlock = String(q.block || '').trim().toLowerCase();
+      const qModule = String(q.module || '').trim().toLowerCase();
+      const qSeniority = String(q.seniority || '').trim().toUpperCase();
+      const qIndustry = String(q.industry || '').trim().toLowerCase();
+      const qImpl = String(q.implementationType || '').trim().toLowerCase();
+
       const matchBlock = filterBlock === 'ALL' || qBlock === filterBlock.trim().toLowerCase();
-      const matchModule = filterModule === 'ALL' || String(q.module || '').trim().toLowerCase() === filterModule.trim().toLowerCase();
-      const matchLevel = filterLevel === 'ALL' || String(q.seniority || '').trim().toUpperCase() === filterLevel.trim().toUpperCase();
-      const matchIndustry = filterIndustry === 'ALL' || String(q.industry || '').trim().toLowerCase() === filterIndustry.trim().toLowerCase();
-      const matchImpl = filterImpl === 'ALL' || String(q.implementationType || '').trim().toLowerCase() === filterImpl.trim().toLowerCase();
+      const matchModule = filterModule === 'ALL' || qModule === filterModule.trim().toLowerCase();
+      const matchLevel = filterLevel === 'ALL' || qSeniority === filterLevel.trim().toUpperCase();
+      const matchIndustry = filterIndustry === 'ALL' || qIndustry === filterIndustry.trim().toLowerCase();
+      const matchImpl = filterImpl === 'ALL' || qImpl === filterImpl.trim().toLowerCase();
+
       return matchBlock && matchModule && matchLevel && matchIndustry && matchImpl;
     });
   }, [questions, filterBlock, filterModule, filterLevel, filterIndustry, filterImpl]);
 
   const filteredScenarios = useMemo(() => {
     return scenarios.filter(s => {
-      const matchModule = filterModule === 'ALL' || String(s.moduleId || '').trim().toLowerCase() === filterModule.trim().toLowerCase();
-      const matchLevel = filterLevel === 'ALL' || String(s.level || '').trim().toUpperCase() === filterLevel.trim().toUpperCase();
-      const matchIndustry = filterIndustry === 'ALL' || String(s.industry || '').trim().toLowerCase() === filterIndustry.trim().toLowerCase();
+      const sModule = String(s.moduleId || '').trim().toLowerCase();
+      const sLevel = String(s.level || '').trim().toUpperCase();
+      const sIndustry = String(s.industry || '').trim().toLowerCase();
+
+      const matchModule = filterModule === 'ALL' || sModule === filterModule.trim().toLowerCase();
+      const matchLevel = filterLevel === 'ALL' || sLevel === filterLevel.trim().toUpperCase();
+      const matchIndustry = filterIndustry === 'ALL' || sIndustry === filterIndustry.trim().toLowerCase();
+
       return matchModule && matchLevel && matchIndustry;
     });
   }, [scenarios, filterModule, filterLevel, filterIndustry]);
@@ -96,9 +111,8 @@ const QuestionBankView: React.FC = () => {
       await db.saveBankQuestions(newQuestions);
       await loadData();
       setShowGenModal(false);
-      alert('Pack de questões gerado com sucesso!');
     } catch (err: any) {
-      alert('Erro ao gravar pacote.');
+      alert('Erro ao gravar pacote: ' + err.message);
     } finally {
       setIsInitializing(false);
     }
@@ -118,9 +132,8 @@ const QuestionBankView: React.FC = () => {
       await db.saveBankScenario(newScenario);
       await loadData();
       setShowScenarioModal(false);
-      alert('Cenário prático gerado!');
-    } catch (err) {
-      alert('Erro ao gerar cenário.');
+    } catch (err: any) {
+      alert('Erro ao gerar cenário: ' + err.message);
     } finally {
       setIsInitializing(false);
     }
@@ -133,8 +146,12 @@ const QuestionBankView: React.FC = () => {
     }
   };
 
-  const handleCountChange = (block: BlockType, value: string) => {
-    setBlockCounts(prev => ({ ...prev, [block]: parseInt(value) || 0 }));
+  const clearFilters = () => {
+    setFilterBlock('ALL');
+    setFilterModule('ALL');
+    setFilterLevel('ALL');
+    setFilterIndustry('ALL');
+    setFilterImpl('ALL');
   };
 
   return (
@@ -146,11 +163,11 @@ const QuestionBankView: React.FC = () => {
         </div>
         <div className="flex gap-2">
           {activeTab === 'QUESTIONS' ? (
-            <button onClick={() => setShowGenModal(true)} className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition-all shadow-lg">
+            <button onClick={() => setShowGenModal(true)} className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 active:scale-95">
               <Sparkles size={18} /> Gerar Questões IA
             </button>
           ) : (
-            <button onClick={() => setShowScenarioModal(true)} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg">
+            <button onClick={() => setShowScenarioModal(true)} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20 active:scale-95">
               <BrainCircuit size={18} /> Novo Cenário IA
             </button>
           )}
@@ -158,49 +175,48 @@ const QuestionBankView: React.FC = () => {
       </div>
 
       <div className="flex p-1.5 bg-slate-100 rounded-2xl w-fit">
-        <button onClick={() => setActiveTab('QUESTIONS')} className={`px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'QUESTIONS' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+        <button onClick={() => setActiveTab('QUESTIONS')} className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'QUESTIONS' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
           Questões ({filteredQuestions.length})
         </button>
-        <button onClick={() => setActiveTab('SCENARIOS')} className={`px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'SCENARIOS' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+        <button onClick={() => setActiveTab('SCENARIOS')} className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'SCENARIOS' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
           Cenários ({filteredScenarios.length})
         </button>
       </div>
 
-      <div className="bg-white p-6 rounded-[24px] border border-slate-100 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* BARRA DE FILTROS DINÂMICA (RESTAURADA E LENDO DO BANCO) */}
+      <div className="bg-white p-6 rounded-[24px] border border-slate-100 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 relative">
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Bloco</label>
-          <select value={filterBlock} onChange={(e) => setFilterBlock(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold">
+          <select value={filterBlock} onChange={(e) => setFilterBlock(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500 text-xs">
             <option value="ALL">Todos os Blocos</option>
             {Object.values(BlockType).map(b => <option key={b} value={b}>{b}</option>)}
           </select>
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Módulo</label>
-          <select value={filterModule} onChange={(e) => setFilterModule(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold">
+          <select value={filterModule} onChange={(e) => setFilterModule(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500 text-xs">
             <option value="ALL">Todos os Módulos</option>
             {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sênioridade</label>
-          <select value={filterLevel} onChange={(e) => setFilterLevel(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold">
+          <select value={filterLevel} onChange={(e) => setFilterLevel(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500 text-xs">
             <option value="ALL">Qualquer</option>
             {Object.values(SeniorityLevel).map(l => <option key={l} value={l}>{l}</option>)}
           </select>
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Indústria</label>
-          <select value={filterIndustry} onChange={(e) => setFilterIndustry(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold">
+          <select value={filterIndustry} onChange={(e) => setFilterIndustry(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500 text-xs">
             <option value="ALL">Todas</option>
             {industries.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
           </select>
         </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Impl.</label>
-          <select value={filterImpl} onChange={(e) => setFilterImpl(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold">
-            <option value="ALL">Qualquer</option>
-            {Object.values(ImplementationType).map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
+        <div className="space-y-1 flex flex-col justify-end">
+          <button onClick={clearFilters} className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-2">
+            <X size={14} /> Limpar Filtros
+          </button>
         </div>
       </div>
 
@@ -211,11 +227,12 @@ const QuestionBankView: React.FC = () => {
         </div>
       ) : activeTab === 'QUESTIONS' ? (
         <div className="grid grid-cols-1 gap-6">
-          {filteredQuestions.map(q => (
+          {filteredQuestions.length > 0 ? filteredQuestions.map(q => (
             <div key={q.id} className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm relative group hover:border-blue-200 transition-all">
                <div className="flex flex-wrap gap-2 mb-4">
                  <span className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-black rounded-full uppercase border border-blue-100">{q.block}</span>
                  <span className="px-3 py-1 bg-amber-50 text-amber-600 text-[10px] font-black rounded-full uppercase border border-amber-100">{q.seniority}</span>
+                 <span className="px-3 py-1 bg-slate-50 text-slate-500 text-[10px] font-black rounded-full uppercase border border-slate-100">{getModuleName(q.module)}</span>
                </div>
                <h3 className="text-xl font-bold text-slate-900 mb-8 leading-relaxed pr-10">{q.text}</h3>
                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -227,26 +244,37 @@ const QuestionBankView: React.FC = () => {
                  ))}
                </div>
             </div>
-          ))}
+          )) : (
+            <div className="py-20 flex flex-col items-center justify-center text-slate-400 bg-white rounded-[40px] border-2 border-dashed border-slate-100">
+               <AlertCircle size={40} className="mb-4 opacity-20" />
+               <p className="font-bold italic">Nenhuma questão encontrada para este filtro.</p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredScenarios.map(s => (
+          {filteredScenarios.length > 0 ? filteredScenarios.map(s => (
             <div key={s.id} onClick={() => setSelectedScenario(s)} className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm relative group hover:border-indigo-400 transition-all cursor-pointer">
                <div className="flex justify-between items-start mb-4">
                  <div className="flex gap-2">
                    <span className="px-2.5 py-1 bg-indigo-50 text-indigo-600 text-[9px] font-black rounded-lg uppercase tracking-widest border border-indigo-100">Case Prático</span>
-                   <span className="px-2.5 py-1 bg-slate-50 text-slate-500 text-[9px] font-black rounded-lg uppercase tracking-widest">{s.moduleId}</span>
+                   <span className="px-2.5 py-1 bg-slate-50 text-slate-500 text-[9px] font-black rounded-lg uppercase tracking-widest">{getModuleName(s.moduleId || '').toUpperCase()}</span>
+                   <span className="px-2.5 py-1 bg-amber-50 text-amber-600 text-[9px] font-black rounded-lg uppercase tracking-widest border border-amber-100">{s.level}</span>
                  </div>
                  <div className="flex gap-1">
-                   <button className="p-2 text-slate-300 hover:text-indigo-600"><Eye size={18} /></button>
-                   <button onClick={(e) => handleDeleteScenario(s.id, e)} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={18} /></button>
+                   <button className="p-2 text-slate-300 hover:text-indigo-600 transition-colors"><Eye size={18} /></button>
+                   <button onClick={(e) => handleDeleteScenario(s.id, e)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
                  </div>
                </div>
                <h4 className="text-xl font-black text-slate-900 mb-3 group-hover:text-indigo-700 transition-colors">{s.title}</h4>
                <p className="text-sm text-slate-600 leading-relaxed line-clamp-3 mb-6 font-medium italic">"{s.description}"</p>
             </div>
-          ))}
+          )) : (
+            <div className="col-span-full py-20 flex flex-col items-center justify-center text-slate-400 bg-white rounded-[40px] border-2 border-dashed border-slate-100">
+               <BrainCircuit size={40} className="mb-4 opacity-20" />
+               <p className="font-bold italic">Nenhum cenário localizado com estes parâmetros.</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -259,10 +287,10 @@ const QuestionBankView: React.FC = () => {
                  <BrainCircuit size={32} />
                  <div>
                    <h3 className="text-2xl font-black">Visualizar Cenário</h3>
-                   <span className="text-[10px] font-black uppercase tracking-widest text-indigo-200">{selectedScenario.moduleId} | {selectedScenario.level}</span>
+                   <span className="text-[10px] font-black uppercase tracking-widest text-indigo-200">{getModuleName(selectedScenario.moduleId || '').toUpperCase()} | {selectedScenario.level}</span>
                  </div>
                </div>
-               <button onClick={() => setSelectedScenario(null)} className="p-2 hover:bg-white/10 rounded-full"><X size={28} /></button>
+               <button onClick={() => setSelectedScenario(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={28} /></button>
              </div>
              
              <div className="flex-1 overflow-y-auto p-10 space-y-8 bg-slate-50/50">
@@ -298,64 +326,147 @@ const QuestionBankView: React.FC = () => {
              </div>
              
              <div className="p-8 bg-white border-t border-slate-100 flex justify-center shrink-0">
-               <button onClick={() => setSelectedScenario(null)} className="px-10 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition-all">Fechar Visualização</button>
+               <button onClick={() => setSelectedScenario(null)} className="px-10 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition-all shadow-xl">Fechar Visualização</button>
              </div>
           </div>
         </div>
       )}
 
-      {/* Modal Questões IA */}
+      {/* Modal Gerar Questões IA */}
       {showGenModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in duration-200 border border-slate-200">
              <div className="bg-blue-600 p-8 flex items-center justify-between text-white">
-               <h3 className="text-xl font-bold flex items-center gap-3"><Sparkles /> Gerador de Pacotes IA</h3>
-               <button onClick={() => setShowGenModal(false)}><X /></button>
+                <div className="flex items-center gap-3">
+                  <Wand2 size={24} />
+                  <h3 className="text-xl font-bold tracking-tight">Gerar Pacote de Questões IA</h3>
+                </div>
+                <button onClick={() => setShowGenModal(false)} className="text-white/60 hover:text-white transition-colors"><X size={24} /></button>
              </div>
              <form onSubmit={handleAIInit} className="p-8 space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <select name="module" className="p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none">
-                    {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                  <select name="level" className="p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none">
-                    {Object.values(SeniorityLevel).map(l => <option key={l} value={l}>{l}</option>)}
-                  </select>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Módulo SAP</label>
+                     <select name="module" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
+                       {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                     </select>
+                   </div>
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sênioridade</label>
+                     <select name="level" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
+                       {Object.values(SeniorityLevel).map(l => <option key={l} value={l}>{l}</option>)}
+                     </select>
+                   </div>
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Indústria</label>
+                     <select name="industry" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
+                       {industries.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                     </select>
+                   </div>
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Implementação</label>
+                     <select name="implType" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
+                       {Object.values(ImplementationType).map(t => <option key={t} value={t}>{t}</option>)}
+                     </select>
+                   </div>
                 </div>
-                <button disabled={isInitializing} type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3">
-                  {isInitializing ? <RefreshCw className="animate-spin" /> : <Sparkles />}
-                  {isInitializing ? "Desenhando..." : `Gerar Pacote com ${totalSelectedQuestions} Questões`}
+
+                <div className="p-6 bg-blue-50/50 rounded-2xl border border-blue-100">
+                  <h4 className="text-[10px] font-black text-blue-600 uppercase mb-4 tracking-widest">Distribuição por Pilar (Total: {totalSelectedQuestions})</h4>
+                  <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+                    {Object.values(BlockType).map(block => (
+                      <div key={block} className="space-y-1">
+                        <label className="text-[8px] font-black text-slate-400 truncate block uppercase">{block}</label>
+                        <input 
+                          type="number" 
+                          min="0" 
+                          max="20"
+                          value={blockCounts[block]}
+                          onChange={(e) => setBlockCounts({...blockCounts, [block]: parseInt(e.target.value) || 0})}
+                          className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-center outline-none focus:ring-2 focus:ring-blue-500" 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button disabled={isInitializing} type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 hover:bg-blue-700 disabled:opacity-50">
+                  {isInitializing ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                  {isInitializing ? "A IA está redigindo as questões..." : "Gerar e Salvar Questões"}
                 </button>
              </form>
           </div>
         </div>
       )}
 
-      {/* Modal Cenário IA */}
+      {/* Modal Novo Cenário IA */}
       {showScenarioModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in">
-            <div className="bg-indigo-600 p-8 flex items-center justify-between text-white">
-              <h3 className="text-xl font-bold flex items-center gap-3"><BrainCircuit /> Gerar Novo Cenário SAP</h3>
-              <button onClick={() => setShowScenarioModal(false)}><X /></button>
-            </div>
-            <form onSubmit={handleScenarioGen} className="p-8 space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <select name="module" className="p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold">
-                  {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                </select>
-                <select name="level" className="p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold">
-                  {Object.values(SeniorityLevel).map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
-              </div>
-              <select name="industry" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold">
-                {industries.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-              </select>
-              <button disabled={isInitializing} type="submit" className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3">
-                {isInitializing ? <RefreshCw className="animate-spin" /> : <Sparkles />}
-                {isInitializing ? "Desenhando..." : "Solicitar Case p/ IA"}
-              </button>
-            </form>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white w-full max-w-lg rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in duration-200 border border-slate-200">
+             <div className="bg-indigo-600 p-8 flex items-center justify-between text-white">
+                <div className="flex items-center gap-3">
+                  <BrainCircuit size={24} />
+                  <h3 className="text-xl font-bold tracking-tight">Novo Cenário IA</h3>
+                </div>
+                <button onClick={() => setShowScenarioModal(false)} className="text-white/60 hover:text-white transition-colors"><X size={24} /></button>
+             </div>
+             <form onSubmit={handleScenarioGen} className="p-8 space-y-6">
+                <div className="space-y-4">
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Módulo SAP</label>
+                     <select name="module" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
+                       {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                     </select>
+                   </div>
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sênioridade</label>
+                     <select name="level" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
+                       {Object.values(SeniorityLevel).map(l => <option key={l} value={l}>{l}</option>)}
+                     </select>
+                   </div>
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Indústria</label>
+                     <select name="industry" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
+                       {industries.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                     </select>
+                   </div>
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Implementação</label>
+                     <select name="implType" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
+                       {Object.values(ImplementationType).map(t => <option key={t} value={t}>{t}</option>)}
+                     </select>
+                   </div>
+                </div>
+
+                <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex gap-3">
+                  <Info className="text-indigo-600 shrink-0" size={18} />
+                  <p className="text-[10px] text-indigo-700 font-medium leading-relaxed">
+                    A IA gerará um título, descrição do problema, diretrizes de resposta e uma rubrica de avaliação invisível.
+                  </p>
+                </div>
+
+                <button disabled={isInitializing} type="submit" className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 hover:bg-indigo-700 disabled:opacity-50">
+                  {isInitializing ? <Loader2 className="animate-spin" /> : <BrainCircuit size={20} />}
+                  {isInitializing ? "Desenhando Cenário..." : "Gerar Novo Cenário"}
+                </button>
+             </form>
           </div>
+        </div>
+      )}
+
+      {/* Overlay de carregamento global para operações de IA */}
+      {isInitializing && (
+        <div className="fixed inset-0 z-[300] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-8">
+           <div className="bg-white px-10 py-8 rounded-[32px] shadow-2xl flex flex-col items-center gap-4 text-center max-w-sm border border-slate-200 animate-in zoom-in duration-300">
+              <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl">
+                <Loader2 size={40} className="animate-spin" />
+              </div>
+              <div>
+                <h4 className="text-lg font-black text-slate-900">A IA está trabalhando...</h4>
+                <p className="text-xs text-slate-500 font-medium mt-1 uppercase tracking-widest">Isso pode levar até 30 segundos.</p>
+              </div>
+              <p className="text-[10px] font-bold text-blue-600 italic">"Garantindo que o conteúdo seja preciso e estratégico para o ecossistema SAP."</p>
+           </div>
         </div>
       )}
     </div>

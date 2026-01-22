@@ -1,6 +1,18 @@
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { Candidate, AssessmentResult, AssessmentTemplate, SAPModule, Industry, Question, LinkedInAnalysis, Scenario, ScenarioResult, SeniorityLevel, ImplementationType, BlockType } from '../types';
+import { 
+  Candidate, 
+  AssessmentResult, 
+  AssessmentTemplate, 
+  SAPModule, 
+  Industry, 
+  Question, 
+  LinkedInAnalysis, 
+  Scenario, 
+  SeniorityLevel, 
+  ImplementationType, 
+  BlockType 
+} from '../types';
 import { MODULES, INDUSTRIES } from '../constants';
 
 const SUPABASE_URL = "https://ymrnlsyyavbufvksernm.supabase.co"; 
@@ -21,26 +33,38 @@ class DBService {
     return true;
   }
 
+  async seedDatabase() {
+    try {
+      await this.saveModules(MODULES);
+      await this.saveIndustries(INDUSTRIES);
+      return true;
+    } catch (e) {
+      console.error("Erro ao seedar banco:", e);
+      return false;
+    }
+  }
+
   private mapCandidateFromDB(data: any): Candidate {
     return {
       id: data.id,
       name: data.name || "N/A",
       email: data.email || "N/A",
-      appliedModule: data.appliedModule || data.applied_module || "N/A",
-      appliedIndustry: data.appliedIndustry || data.applied_industry || "Cross",
-      appliedLevel: data.appliedLevel || data.applied_level || "JUNIOR",
-      implementationType: data.implementationType || data.implementation_type || "S/4HANA Private Cloud",
-      testLink: data.testLink || data.test_link || "",
+      appliedModule: data.applied_module || data.appliedModule || "N/A",
+      appliedIndustry: data.applied_industry || data.appliedIndustry || "cross",
+      appliedLevel: (data.applied_level || data.appliedLevel) as SeniorityLevel || SeniorityLevel.JUNIOR,
+      implementationType: (data.implementation_type || data.implementationType) as ImplementationType || ImplementationType.PRIVATE,
+      testLink: data.test_link || data.testLink || "",
       status: data.status || "PENDING",
-      templateId: data.templateId || data.template_id || "",
-      createdAt: data.createdAt || data.created_at || new Date().toISOString()
+      templateId: data.template_id || data.templateId || "",
+      createdAt: data.created_at || data.createdAt || new Date().toISOString(),
+      jobContext: data.job_context || ""
     };
   }
 
   async getCandidates(): Promise<Candidate[]> {
     const { data, error } = await this.client.from('candidates').select('*');
     if (error) {
-      console.error("Erro ao buscar candidatos:", error);
+      console.error("❌ Erro ao buscar candidatos:", error);
       return [];
     }
     return (data || []).map(this.mapCandidateFromDB);
@@ -52,70 +76,43 @@ class DBService {
   }
 
   async saveCandidate(candidate: Candidate) {
-    // Ajustado para usar camelCase conforme padrão do seu schema
-    return await this.client.from('candidates').upsert({
+    const { error } = await this.client.from('candidates').upsert({
       id: candidate.id,
       name: candidate.name,
       email: candidate.email,
-      appliedModule: candidate.appliedModule,
-      appliedIndustry: candidate.appliedIndustry,
-      appliedLevel: candidate.appliedLevel,
-      implementationType: candidate.implementationType,
-      testLink: candidate.testLink,
+      applied_module: candidate.appliedModule,
+      applied_industry: candidate.appliedIndustry,
+      applied_level: candidate.appliedLevel,
+      implementation_type: candidate.implementationType,
+      test_link: candidate.testLink,
       status: candidate.status,
-      templateId: candidate.templateId,
-      createdAt: candidate.createdAt
+      template_id: candidate.templateId,
+      created_at: candidate.createdAt,
+      job_context: candidate.jobContext
     });
+
+    if (error) {
+      console.error("❌ Erro Supabase (saveCandidate):", error);
+      throw error;
+    }
   }
 
   async deleteCandidate(id: string) {
     await this.client.from('results').delete().eq('candidateId', id);
-    await this.client.from('linkedin_analyses').delete().eq('candidateId', id);
     const { error } = await this.client.from('candidates').delete().eq('id', id);
     if (error) throw error;
   }
 
-  async getResults() {
-    const { data, error } = await this.client.from('results').select('*');
-    if (error) return [];
-    return (data || []).map(d => ({
-      ...d,
-      blockScores: d.blockScores || {},
-      answers: d.answers || [],
-      scenarioResults: d.scenarioResults || []
-    }));
-  }
-
-  async saveResult(result: AssessmentResult) {
-    await this.client.from('results').upsert(result);
-    // Atualizando status usando camelCase para consistência
-    await this.client.from('candidates').update({ status: 'COMPLETED' }).eq('id', result.candidateId);
-  }
-
-  async deleteResultByCandidate(candidateId: string) {
-    const { error } = await this.client.from('results').delete().eq('candidateId', candidateId);
-    if (error) throw error;
-  }
-
-  async findTemplate(moduleId: string, industryId: string, level: SeniorityLevel, implementationType: ImplementationType): Promise<AssessmentTemplate | null> {
-    const { data, error } = await this.client
-      .from('templates')
-      .select('*')
-      .eq('moduleId', moduleId)
-      .eq('industryId', industryId)
-      .eq('level', level)
-      .eq('implementationType', implementationType)
-      .maybeSingle();
-    
-    if (error || !data) return null;
-    
+  async getTemplate(id: string): Promise<AssessmentTemplate | null> {
+    const { data, error } = await this.client.from('templates').select('*').eq('id', id).maybeSingle();
+    if (!data || error) return null;
     return {
       id: data.id,
       name: data.name,
       moduleId: data.moduleId,
       industryId: data.industryId,
-      level: data.level,
-      implementationType: data.implementationType,
+      level: data.level as SeniorityLevel,
+      implementationType: data.implementationType as ImplementationType,
       questions: data.questions || [],
       scenarios: data.scenarios || [],
       createdAt: data.createdAt
@@ -129,9 +126,9 @@ class DBService {
       id: d.id,
       name: d.name || 'Sem nome',
       moduleId: d.moduleId || 'N/A',
-      industryId: d.industryId || 'Cross',
-      level: d.level || 'JUNIOR',
-      implementationType: d.implementationType || 'S/4HANA Private Cloud',
+      industryId: d.industryId || 'cross',
+      level: (d.level as SeniorityLevel) || SeniorityLevel.JUNIOR,
+      implementationType: (d.implementationType as ImplementationType) || ImplementationType.PRIVATE,
       questions: d.questions || [],
       scenarios: d.scenarios || [],
       createdAt: d.createdAt || new Date().toISOString()
@@ -139,7 +136,6 @@ class DBService {
   }
 
   async saveTemplate(template: AssessmentTemplate) {
-    // CORREÇÃO CRÍTICA: Mapeamento exato para o schema fornecido (camelCase)
     const { error } = await this.client.from('templates').upsert({
       id: template.id,
       name: template.name,
@@ -148,10 +144,14 @@ class DBService {
       level: template.level,
       implementationType: template.implementationType,
       questions: template.questions,
-      scenarios: template.scenarios,
-      createdAt: template.createdAt // Alterado de created_at para createdAt
+      scenarios: template.scenarios || [],
+      createdAt: template.createdAt
     });
-    if (error) throw error;
+
+    if (error) {
+      console.error("❌ Erro Supabase (saveTemplate):", error);
+      throw error;
+    }
   }
 
   async deleteTemplate(id: string) {
@@ -159,75 +159,97 @@ class DBService {
     if (error) throw error;
   }
 
-  async getModules() { return MODULES; }
-  async getIndustries() { return INDUSTRIES; }
+  // --- CONFIGURAÇÕES VIA TABELA SETTINGS ---
 
-  // FIX: Added saveModules to handle module persistence from SettingsView
+  async getModules(): Promise<SAPModule[]> {
+    const { data, error } = await this.client.from('settings').select('value').eq('key', 'modules').maybeSingle();
+    if (error || !data || !data.value) return MODULES;
+    return data.value;
+  }
+
   async saveModules(modules: SAPModule[]) {
-    // Implementation for persisting updated modules list
-    console.log("Saving updated modules list:", modules);
-    // In a production environment, this would call `this.client.from('modules').upsert(...)`
+    const { error } = await this.client.from('settings').upsert({ key: 'modules', value: modules });
+    if (error) throw error;
   }
 
-  // FIX: Added saveIndustries to handle industry persistence from SettingsView
-  async saveIndustries(industries: Industry[]) {
-    // Implementation for persisting updated industries list
-    console.log("Saving updated industries list:", industries);
-    // In a production environment, this would call `this.client.from('industries').upsert(...)`
+  async deleteModule(id: string) {
+    const current = await this.getModules();
+    const updated = current.filter(m => m.id !== id);
+    await this.saveModules(updated);
   }
+
+  async getIndustries(): Promise<Industry[]> {
+    const { data, error } = await this.client.from('settings').select('value').eq('key', 'industries').maybeSingle();
+    if (error || !data || !data.value) return INDUSTRIES;
+    return data.value;
+  }
+
+  async saveIndustries(industries: Industry[]) {
+    const { error } = await this.client.from('settings').upsert({ key: 'industries', value: industries });
+    if (error) throw error;
+  }
+
+  async deleteIndustry(id: string) {
+    const current = await this.getIndustries();
+    const updated = current.filter(i => i.id !== id);
+    await this.saveIndustries(updated);
+  }
+
+  // --- FIM CONFIGURAÇÕES ---
 
   async getBankQuestions(): Promise<Question[]> {
     const { data, error } = await this.client.from('bank_questions').select('*');
     if (error) {
-      console.error("Erro ao buscar questões do banco:", error);
+      console.error("❌ Erro ao buscar questões do banco:", error);
       return [];
     }
-    return (data || []).map(q => ({
+    return (data || []).map((q: any) => ({
       id: q.id,
-      text: q.text || "Questão sem texto",
+      text: q.text,
       options: q.options || [],
-      correctAnswerIndex: q.correctAnswerIndex ?? 0,
-      block: q.block || BlockType.PROCESS,
-      seniority: q.seniority || SeniorityLevel.JUNIOR,
-      industry: q.industry || "cross",
-      module: q.module || "pmgt",
-      implementationType: q.implementationType || "S/4HANA Private Cloud",
-      explanation: q.explanation || "",
+      correctAnswerIndex: q.correctAnswerIndex || q.correct_answer_index,
+      block: (q.block || BlockType.PROCESS) as BlockType,
+      seniority: (q.seniority || q.seniority_level || SeniorityLevel.JUNIOR) as SeniorityLevel,
+      industry: q.industry || q.industry_id || 'cross',
+      module: q.module || q.module_id || 'pmgt',
+      implementationType: (q.implementationType || q.implementation_type || ImplementationType.PRIVATE) as ImplementationType,
+      explanation: q.explanation,
       weight: q.weight || 1
     }));
   }
 
   async saveBankQuestions(questions: Question[]) {
-    const formatted = questions.map(q => ({
+    const dataToSave = questions.map(q => ({
       id: q.id,
       text: q.text,
       options: q.options,
-      correctAnswerIndex: q.correctAnswerIndex,
+      correct_answer_index: q.correctAnswerIndex,
       block: q.block,
-      seniority: q.seniority,
-      module: q.module,
-      industry: q.industry,
-      implementationType: q.implementationType,
+      seniority_level: q.seniority,
+      industry_id: q.industry,
+      module_id: q.module,
+      implementation_type: q.implementationType,
       explanation: q.explanation,
-      weight: q.weight || 1
+      weight: q.weight
     }));
-    
-    const { error } = await this.client.from('bank_questions').upsert(formatted);
-    if (error) throw error;
-  }
-
-  async deleteBankQuestion(id: string) {
-    await this.client.from('bank_questions').delete().eq('id', id);
+    const { error } = await this.client.from('bank_questions').upsert(dataToSave);
+    if (error) {
+      console.error("❌ Erro ao salvar questões no banco:", error);
+      throw error;
+    }
   }
 
   async getBankScenarios(): Promise<Scenario[]> {
     const { data, error } = await this.client.from('scenarios').select('*');
-    if (error) return [];
+    if (error) {
+      console.error("❌ Erro ao buscar cenários:", error);
+      return [];
+    }
     return (data || []).map(d => ({
       id: d.id,
-      moduleId: d.moduleId || d.module_id || d.module,
-      level: d.level,
-      industry: d.industryId || d.industry_id || d.industry,
+      moduleId: d.module_id || d.moduleId,
+      level: (d.level as SeniorityLevel),
+      industry: d.industry || d.industryId,
       title: d.title,
       description: d.description,
       guidelines: d.guidelines,
@@ -238,67 +260,110 @@ class DBService {
   async saveBankScenario(scenario: Scenario) {
     const { error } = await this.client.from('scenarios').upsert({
       id: scenario.id,
-      moduleId: scenario.moduleId,
+      module_id: scenario.moduleId,
       level: scenario.level,
-      industryId: scenario.industry,
+      industry: scenario.industry,
       title: scenario.title,
       description: scenario.description,
       guidelines: scenario.guidelines,
       rubric: scenario.rubric,
-      createdAt: new Date().toISOString()
+      created_at: new Date().toISOString()
     });
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Erro Supabase (saveBankScenario):", error);
+      throw error;
+    }
   }
 
-  async deleteBankScenario(id: string) {
+  async deleteBankScenario(id: string): Promise<void> {
     const { error } = await this.client.from('scenarios').delete().eq('id', id);
     if (error) throw error;
   }
 
   async getLinkedInAnalyses(): Promise<LinkedInAnalysis[]> {
     const { data, error } = await this.client.from('linkedin_analyses').select('*');
-    if (error) return [];
+    if (error) {
+      console.error("❌ Erro ao buscar análises LinkedIn:", error);
+      return [];
+    }
     return (data || []).map(d => ({
       id: d.id,
-      candidateId: d.candidateId || d.candidate_id,
-      profileLink: d.profileLink || d.profile_link || "",
-      suggestedModule: d.suggestedModule || d.suggested_module || "",
-      suggestedLevel: d.suggestedLevel || d.suggested_level || "SENIOR",
+      candidateId: d.candidate_id || d.candidateId,
+      profileLink: d.profileLink || d.profile_link || "LinkedIn Profile",
+      suggestedModule: d.suggestedModule || d.suggested_module || "N/A",
+      suggestedLevel: (d.suggestedLevel || d.suggested_level || SeniorityLevel.SENIOR) as SeniorityLevel,
       industriesIdentified: d.industriesIdentified || d.industries_identified || [],
       executiveSummary: d.executiveSummary || d.executive_summary || "",
-      suggestedImplementation: d.suggestedImplementation || d.suggested_implementation || "S/4HANA Private Cloud",
+      suggestedImplementation: (d.suggestedImplementation || d.suggested_implementation || ImplementationType.PRIVATE) as ImplementationType,
       analyzedAt: d.analyzedAt || d.analyzed_at || new Date().toISOString(),
-      disc: d.disc || {}
+      disc: d.disc || { scores: { dominance: 0, influence: 0, steadiness: 0, compliance: 0 }, predominant: "N/A" }
     }));
   }
 
   async saveLinkedInAnalysis(analysis: LinkedInAnalysis) {
-    try {
-      const { error } = await this.client.from('linkedin_analyses').upsert({ 
-        id: analysis.id,
-        candidateId: analysis.candidateId,
-        profileLink: analysis.profileLink,
-        suggestedModule: analysis.suggestedModule,
-        suggestedLevel: analysis.suggestedLevel,
-        industriesIdentified: analysis.industriesIdentified,
-        executiveSummary: analysis.executiveSummary,
-        suggestedImplementation: analysis.suggestedImplementation,
-        disc: analysis.disc,
-        analyzedAt: analysis.analyzedAt 
-      });
-      if (error) throw error;
-      return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message };
+    const { error } = await this.client.from('linkedin_analyses').upsert({ 
+      id: analysis.id,
+      candidate_id: analysis.candidateId,
+      profileLink: analysis.profileLink,
+      suggestedModule: analysis.suggestedModule,
+      suggestedLevel: analysis.suggestedLevel,
+      industriesIdentified: analysis.industriesIdentified,
+      executiveSummary: analysis.executiveSummary,
+      suggestedImplementation: analysis.suggestedImplementation,
+      disc: analysis.disc,
+      analyzedAt: analysis.analyzedAt 
+    });
+    if (error) {
+      console.error("❌ Erro ao salvar análise LinkedIn:", error);
+      return { success: false, error: error.message };
     }
+    return { success: true };
   }
 
-  async deleteLinkedInAnalysis(id: string) {
+  async deleteLinkedInAnalysis(id: string): Promise<{ success: boolean; error?: string }> {
     const { error } = await this.client.from('linkedin_analyses').delete().eq('id', id);
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Erro ao excluir análise LinkedIn:", error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
   }
 
-  async seedDatabase() {}
+  async saveResult(result: AssessmentResult) {
+    const { error } = await this.client.from('results').upsert({
+      id: result.id,
+      candidateId: result.candidateId,
+      templateId: result.templateId,
+      score: result.score,
+      blockScores: result.blockScores,
+      answers: result.answers,
+      scenarioResults: result.scenarioResults || [],
+      completedAt: result.completedAt
+    });
+
+    if (error) {
+      console.error("❌ Erro Supabase (saveResult):", error);
+      throw error;
+    }
+
+    await this.client.from('candidates').update({ status: 'COMPLETED' }).eq('id', result.candidateId);
+  }
+
+  async getResults(): Promise<AssessmentResult[]> {
+    const { data, error } = await this.client.from('results').select('*');
+    if (error) return [];
+    return (data || []).map(d => ({
+      id: d.id,
+      candidateId: d.candidateId || d.candidate_id,
+      templateId: d.templateId || d.template_id,
+      score: d.score,
+      blockScores: d.blockScores || d.block_scores || {},
+      answers: d.answers || [],
+      scenarioResults: d.scenarioResults || d.scenario_results || [],
+      completedAt: d.completedAt || d.completed_at,
+      reportSentTo: d.reportSentTo || d.report_sent_to || []
+    }));
+  }
 }
 
 export const db = new DBService();
